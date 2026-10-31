@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { addStop, breakAt, joinCycles, layoutCycles, removeStop, sideFor, stepAt } from "./cycle.ts";
 import { DEFAULT_STYLE } from "./docstyle.ts";
-import { addCaption, addCycle, addRing, deleteAtoms, EMPTY, fragments } from "./edit.ts";
+import { addCaption, addCycle, addRing, deleteAtoms, deleteGraphics, EMPTY, fragments } from "./edit.ts";
 import { readOct, writeOct } from "./oct.ts";
 import type { Box, Mol } from "./render.ts";
 
@@ -127,6 +127,81 @@ assert.equal(empty.cycles?.[0]?.nodes.length, 0);
   assert.equal(lay(stop).arrows.filter((x) => x.caption !== undefined || x.captionEnd !== undefined).length, 2);
   const kept = readOct(writeOct(s, DEFAULT_STYLE)).mol;
   assert.ok(kept.captions!.every((c) => c.cycle?.through === true));
+}
+
+// A reagent alone runs into the arc with no head and no tail; with a product on its step (neither kept apart) the two
+// are one arrow; kept apart, two. Where it touches the arc can move, and a tail can be pulled out.
+{
+  let s: Mol, sid: number, rid: number, pid: number;
+  [s, sid] = addCycle(EMPTY, { centre: [0, 0], radius: 3, clockwise: true, nodes: [], at: [] });
+  s = addStop(addStop(s, sid, right, []), sid, left, []);
+  const lay = (x: Mol) => layoutCycles(x, L, 1, ink(x)), r = (q: [number, number]) => Math.hypot(...q), mine = (x: Mol, id: number) => lay(x).arrows.filter((a) => a.caption === id || a.captionEnd === id);
+  [s, rid] = addCaption(s, { text: "ArX", x: 0, y: 0, cycle: { cycle: sid, step: 1, side: "in" } });
+  let [a] = mine(s, rid);
+  assert.ok(r(a.from) > 3.5 && Math.abs(r(a.to) - 3) < 0.05 && a.end === "none", "a reagent runs into the arc");
+  const h = lay(s).handles.get(rid)!;
+  assert.ok(h.end && h.meet && !h.tail);
+  // meet: it touches the arc further along.
+  const met = { ...s, captions: s.captions!.map((c) => ({ ...c, cycle: { ...c.cycle!, meet: 0.6 } })) };
+  assert.ok(Math.hypot(lay(met).handles.get(rid)!.meet[0] - h.meet[0], lay(met).handles.get(rid)!.meet[1] - h.meet[1]) > 0.5);
+  // A tail where it was put.
+  const tailed = { ...s, captions: s.captions!.map((c) => ({ ...c, cycle: { ...c.cycle!, through: true, tail: [0.9, 1.5] as [number, number] } })) };
+  [a] = mine(tailed, rid);
+  assert.ok(Math.abs(r(a.to) - 4.5) < 0.05 && lay(tailed).handles.get(rid)!.tail);
+  [s, pid] = addCaption(s, { text: "MX", x: 0, y: 0, cycle: { cycle: sid, step: 1, side: "out" } });
+  assert.equal(mine(s, rid).length, 1);
+  assert.equal(mine(s, rid)[0].captionEnd, pid);
+  const apart = { ...s, captions: s.captions!.map((c) => (c.id === pid ? { ...c, cycle: { ...c.cycle!, through: false } } : c)) };
+  assert.equal(lay(apart).arrows.filter((x) => x.caption !== undefined || x.captionEnd !== undefined).length, 2);
+  // A step's name sits half way along its step, just outside the circle (no arrow passes through that step), with no
+  // arrow of its own.
+  let nid: number;
+  [s, nid] = addCaption(s, { text: "oxidative addition", x: 0, y: 0, cycle: { cycle: sid, step: 0, side: "name" } });
+  const n = lay(s).anchors.get(nid)!;
+  assert.ok(Math.hypot(n.x, n.y) > 3 * L && n.y > 0, JSON.stringify(n)); // the bottom step, outside
+  assert.equal(lay(s).arrows.filter((x) => x.caption === nid || x.captionEnd === nid).length, 0);
+  // Saved and opened again.
+  const kept = readOct(writeOct({ ...apart, captions: [...apart.captions!.map((c) => (c.id === rid ? { ...c, cycle: { ...c.cycle!, meet: 0.3, tail: [0.7, 2] as [number, number] } } : c)), ...s.captions!.filter((c) => c.id === nid)] }, DEFAULT_STYLE)).mol;
+  const back = (t: string) => kept.captions!.find((c) => c.text === t)!.cycle!;
+  assert.equal(back("MX").through, false);
+  assert.deepEqual([back("ArX").meet, back("ArX").tail], [0.3, [0.7, 2]]);
+  assert.equal(back("oxidative addition").side, "name");
+}
+
+// Text on the circle is an intermediate: it takes a break's place (or makes a node), the arcs stop short of it, and
+// deleted it leaves a break. A wider gap leaves more space round it.
+{
+  let s: Mol, sid: number, tid: number;
+  [s, sid] = addCycle(EMPTY, { centre: [0, 0], radius: 3, clockwise: true, nodes: [], at: [] });
+  s = addStop(addStop(s, sid, right, []), sid, left, []);
+  [s, tid] = addCaption(s, { text: "Pd(OAc)2", x: 0, y: 3 });
+  s = joinCycles(s, fragments(s));
+  assert.deepEqual(s.captions!.find((c) => c.id === tid)!.cycle, { cycle: sid, step: 2, side: "node" }); // clockwise: right, left, then the top
+  assert.equal(s.cycles![0].nodes.length, 3);
+  // One near a break takes its place.
+  let t2: number;
+  [s, t2] = addCaption(s, { text: "LPd", x: -3.1, y: 0.1 });
+  s = joinCycles(s, fragments(s), () => false, (c) => c.id === t2);
+  assert.equal(s.cycles![0].nodes.length, 3);
+  assert.equal(s.captions!.find((c) => c.id === t2)!.cycle!.step, 1);
+  // The text's ink: a box two bond lengths wide round it. The arcs stop short of it.
+  const box = (x: Mol) => (id: number) => { const c = x.captions!.find((y) => y.id === id)!; return [c.x * L - L, -c.y * L - 8, c.x * L + L, -c.y * L + 4] as Box; };
+  const spans = (x: Mol) => layoutCycles(x, L, 1, ink(x), box(x)).spans;
+  const into = spans(s).find((p) => p.step === 1)!; // from the left-hand text to the top text
+  const wide = spans({ ...s, cycles: s.cycles!.map((c) => ({ ...c, gap: 20 })) }).find((p) => p.step === 1)!;
+  assert.ok(wide.to < into.to && wide.from > into.from);
+  // Not a break: a click there does not join the circle up.
+  assert.equal(breakAt(s, s.cycles![0], top, 0.2), undefined);
+  // Deleted, it leaves a break where it was.
+  const gone = deleteGraphics(s, new Set([tid]));
+  assert.equal(gone.cycles![0].nodes.length, 3);
+  assert.equal(breakAt(gone, gone.cycles![0], top, 0.2), 2);
+  // The cycle deleted, the text stays as text.
+  assert.ok(!deleteGraphics(s, new Set([sid])).captions!.find((c) => c.id === tid)!.cycle);
+  // Saved and opened again.
+  const kept = readOct(writeOct({ ...s, cycles: s.cycles!.map((c) => ({ ...c, gap: 9 })) }, DEFAULT_STYLE)).mol;
+  assert.equal(kept.cycles![0].gap, 9);
+  assert.equal(kept.captions!.find((c) => c.text === "Pd(OAc)2")!.cycle!.side, "node");
 }
 
 console.log("cycle tool ok");

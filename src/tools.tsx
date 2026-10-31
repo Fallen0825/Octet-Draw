@@ -70,7 +70,7 @@ export const withSize = (v: string, size: ArrowSize) => {
 };
 
 // The Cycle tool: draw a cycle's circle (and break it into steps), or add a reagent coming in or a product going out.
-export const CYCLES: Record<string, string> = { circle: "Catalytic cycle", in: "Reagent in", out: "Product out" };
+export const CYCLES: Record<string, string> = { circle: "Catalytic cycle", in: "Reagent in", out: "Product out", name: "Step name" };
 
 export const SELECTS = { box: { name: "Box" }, lasso: { name: "Lasso" }, perspective: { name: "Structure perspective" } };
 
@@ -241,7 +241,7 @@ export function ShapeGlyph({ kind }: { kind: ShapeKind }) {
 }
 
 // The Cycle tool's icons: a circle of arrows broken in three places, and that circle with a side arrow coming in or
-// going out at the top.
+// going out at the top, or with a step name inside it.
 export const CycleGlyph = ({ v }: { v: string }) => {
   const arc = (a0: number, a1: number, r = 80, cx = 128, cy = 136) => { const p = (a: number) => [cx + r * Math.cos(a), cy + r * Math.sin(a)].map((x) => x.toFixed(1)).join(","); return `M${p(a0)} A${r},${r} 0 0 1 ${p(a1)}`; };
   const head = (a: number, r = 80, cx = 128, cy = 136) => { const t = [cx + r * Math.cos(a), cy + r * Math.sin(a)], u = [-Math.sin(a), Math.cos(a)], n = [Math.cos(a), Math.sin(a)];
@@ -253,6 +253,7 @@ export const CycleGlyph = ({ v }: { v: string }) => {
       {stops.map((s) => <polyline key={s} points={head((s + 104) * d)} />)}
       {v === "in" && <><path d="M44,28 Q84,28 104,52" /><polyline points="76,44 104,52 100,22" /></>}
       {v === "out" && <><path d="M152,52 Q172,28 212,28" /><polyline points="186,10 212,28 188,48" /></>}
+      {v === "name" && <path d="M100,124 H156 M108,152 H148" />}
     </Icon>
   );
 };

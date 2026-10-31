@@ -1029,7 +1029,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     outs.push({ xml: el("group", { id: idOf.get(g.id)!, BoundingBox: boxText(box), Z: Z(), Integral: g.integral ? "yes" : undefined }, RANKED(kids).map((o) => o.xml).join("") + notes(g.annotations)), rank: 0, box, group: parent === undefined ? undefined : groups[parent].id });
   }
   const top = outs.filter((o) => o.group !== -1), all = union(top.map((o) => o.box)) ?? [0, 0, 0, 0];
-  const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map((n) => n.map((i) => nodeId.get(i)).filter((v) => v !== undefined)), at: c.at, colour: c.colour, width: c.width }));
+  const cycles = (mol.cycles ?? []).map((c: Cycle) => ({ id: idOf.get(c.id), centre: c.centre, radius: c.radius, clockwise: c.clockwise, nodes: c.nodes.map((n) => n.map((i) => nodeId.get(i)).filter((v) => v !== undefined)), at: c.at, colour: c.colour, width: c.width, gap: c.gap }));
   const pageXml = el("page", { id: fresh(), BoundingBox: `0 0 ${fmt(W)} ${fmt(H)}`, HeaderPosition: 36, FooterPosition: 36, PrintTrimMarks: "yes", HeightPages: 1, WidthPages: 1 }, RANKED(top).map((o) => o.xml).join("") + schemes.join("") + kept.join("") + notes(mol.annotations));
   const doc = colour(style.colour) ?? 0, bg = style.background.startsWith("#") ? colour(style.background)! : 1;
   // The document's palette goes in its colour table, as ChemDraw keeps a document's colours there.
@@ -1746,7 +1746,8 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     // Where the file puts it, for conditions placed by hand (every one in a ChemDraw file; in Octet's, those it marks).
     if (!octet || p?.placed === 1) anchors.set(c.id, toOctet(q[0], q[1]));
     const cyc = p?.cycle as Record<string, unknown> | undefined;
-    if (cyc && Number.isInteger(cyc.cycle) && Number.isInteger(cyc.step) && isNum(cyc.step, 0, 63) && ["in", "out", "centre"].includes(cyc.side as string)) c.cycle = { cycle: cyc.cycle as number, step: cyc.step as number, side: cyc.side as "in", ...(isNum(cyc.at, 0, 1) ? { at: cyc.at as number } : {}), ...(isNum(cyc.reach, -1000, 1000) ? { reach: cyc.reach as number } : {}), ...(cyc.through === true ? { through: true } : {}) };
+    if (cyc && Number.isInteger(cyc.cycle) && Number.isInteger(cyc.step) && isNum(cyc.step, 0, 63) && ["in", "out", "centre", "node", "name"].includes(cyc.side as string)) c.cycle = { cycle: cyc.cycle as number, step: cyc.step as number, side: cyc.side as "in", ...(isNum(cyc.at, 0, 1) ? { at: cyc.at as number } : {}), ...(isNum(cyc.reach, -1000, 1000) ? { reach: cyc.reach as number } : {}), ...(typeof cyc.through === "boolean" ? { through: cyc.through } : {}),
+      ...(isNum(cyc.meet, 0, 1) ? { meet: cyc.meet as number } : {}), ...(Array.isArray(cyc.tail) && cyc.tail.length === 2 && isNum(cyc.tail[0], 0, 1) && isNum(cyc.tail[1], -1000, 1000) ? { tail: cyc.tail as [number, number] } : {}) };
     captions.push(c);
     objectOf.set(int(t.attrs.id) ?? -1, c.id);
     member(group, c.id);
@@ -2220,7 +2221,7 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     const centre = c?.centre, all = Array.isArray(c?.nodes) ? (c.nodes as unknown[]).slice(0, 64).map((n) => (Array.isArray(n) ? n.map((id) => atomOf.get(Number.isInteger(id) ? id : -1)).filter((i): i is number => i !== undefined) : [])) : [];
     const at = Array.isArray(c?.at) && c.at.length === all.length && c.at.every((v) => isNum(v, -10, 10)) ? (c.at as number[]) : undefined, nodes = at ? all : all.filter((n) => n.length);
     if (!Array.isArray(centre) || centre.length !== 2 || !centre.every((v) => isNum(v, -1e6, 1e6)) || !isNum(c.radius, 1e-6, 1e6) || (!at && nodes.length < 2) || !Number.isInteger(c.id)) return [];
-    return [{ id: c.id as number, centre: centre as P, radius: c.radius as number, clockwise: c.clockwise !== false, nodes, ...(at ? { at } : {}), ...(isColour(c.colour) ? { colour: c.colour } : {}), ...(isNum(c.width, 0.05, 20) ? { width: c.width as number } : {}) }];
+    return [{ id: c.id as number, centre: centre as P, radius: c.radius as number, clockwise: c.clockwise !== false, nodes, ...(at ? { at } : {}), ...(isColour(c.colour) ? { colour: c.colour } : {}), ...(isNum(c.width, 0.05, 20) ? { width: c.width as number } : {}), ...(isNum(c.gap, 0, 100) ? { gap: c.gap as number } : {}) }];
   });
   for (const c of captions) if (c.cycle && !cycles.some((y) => y.id === c.cycle!.cycle)) delete c.cycle;
   // ChemDraw's kept configurations: the neighbours along each bond of the order (0 is the hydrogen or lone pair), with

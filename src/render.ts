@@ -1744,7 +1744,7 @@ export function placeCaptions(mol: Mol, d: Pick<Drawing, "ink" | "scale">, width
     const arrow = c.on && arrows.find((a) => a.id === c.on!.arrow), hand = placedAt(c, mol.arrows);
     if (c.on && !arrow) return [];
     const pinned = fixed.get(c.id);
-    if (c.cycle && !pinned) return [];
+    if (c.cycle && c.cycle.side !== "node" && !pinned) return [];
     if (pinned) {
       [x, y, anchorOverride] = [pinned.x, pinned.y - offs[offs.length - 1] * (pinned.anchor === "middle" ? 0.5 : 0), pinned.anchor];
     } else if (arrow && hand) {

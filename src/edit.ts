@@ -1827,13 +1827,13 @@ export function setTableCell(sh: Shape, r: number, c: number, text: string, meas
 export const updateCaption = (m: Mol, id: number, change: Partial<Caption>): Mol =>
   ({ ...m, captions: m.captions?.map((c) => (c.id === id ? { ...c, ...change } : c)) });
 // Deletes captions, arrows, shapes and cycles by id; an arrow's conditions and a cycle's labels go with it. Groups
-// lose them too (tidyGroups).
+// lose them too (tidyGroups). A cycle's intermediates written as text stay, as text; one deleted leaves a break.
 export const deleteGraphics = (m: Mol, ids: Set<number>): Mol => tidyGroups({
   ...m,
-  captions: m.captions?.filter((c) => !ids.has(c.id) && !(c.on && ids.has(c.on.arrow)) && !(c.cycle && ids.has(c.cycle.cycle))),
+  captions: m.captions?.flatMap((c) => (ids.has(c.id) || (c.on && ids.has(c.on.arrow)) ? [] : c.cycle && ids.has(c.cycle.cycle) ? (c.cycle.side === "node" ? [(({ cycle: _, ...rest }) => rest)(c)] : []) : [c])),
   arrows: m.arrows?.filter((a) => !ids.has(a.id)),
   shapes: m.shapes?.filter((x) => !ids.has(x.id)),
-  cycles: m.cycles?.filter((c) => !ids.has(c.id)),
+  cycles: m.cycles?.filter((c) => !ids.has(c.id)).map((c) => (c.at ? keepAngles(m, c) : c)),
   ...(m.grids ? { grids: m.grids.filter((g) => !ids.has(g.arrow)) } : {}),
 });
 // The next compound number in the drawing: one more than the highest bold number already there.

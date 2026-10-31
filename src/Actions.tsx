@@ -9,7 +9,7 @@ import {
   AlignBottomSimple, AlignTopSimple, ArrowLineDown, ArrowLineUp, CursorText, DotsThree, DotsThreeVertical, Faders, Polygon, Rectangle, ArrowArcLeft, ArrowArcRight, ArrowsCounterClockwise, ArrowUDownLeft, CircleDashed, CornersOut, MagnifyingGlass, Swap,
   ClipboardText, CopySimple, IdentificationBadge, Key, Target, LineSegments, Minus, Plus, Stack, StackSimple, Eye, FileArrowDown, FlipHorizontal, FlipVertical, GearSix, House, LinkBreak, LinkSimple, ListNumbers, Hash, MagicWand, MinusCircle,
   PencilSimpleLine, PlusCircle, SelectionAll, SlidersHorizontal, SquareSplitHorizontal, TagSimple, TextAlignCenter, TextAlignLeft,
-  TextAlignJustify, TextAlignRight, TextB, TextItalic, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, Copy, ListDashes, Percent,
+  TextAlignJustify, TextAlignRight, Tag, TextB, TextItalic, TextUnderline, Trash, Warning, X, Plus as PlusIcon, Rows, RowsPlusBottom, RowsPlusTop, Columns, ColumnsPlusRight, ColumnsPlusLeft, ArrowsInLineHorizontal, Backspace, Broom, CirclesThree, FlowArrow, Subtitles, Textbox, WarningCircle, WaveSine, Circle, TextSubscript, TextSuperscript, Cube, Square, BoundingBox, SelectionSlash, AlignLeft, AlignRight, AlignTop, AlignBottom, ArrowsOutLineHorizontal, ArrowsOutLineVertical, BezierCurve, LineSegment, ArrowsMerge, ArrowsInCardinal, FadersHorizontal, Copy, ListDashes, Percent,
   EyeSlash, Angle, Resize, Unite, SelectionPlus, Paragraph, Checkerboard, CubeTransparent, CircleHalf, ClockCounterClockwise, Shuffle, ArrowBendDownRight,
   Question, EyeClosed, ArrowsInLineVertical, BracketsRound, TreeStructure, Asterisk, AsteriskSimple, BracketsSquare, SquaresFour, StarFour, TextTSlash,
 } from "@phosphor-icons/react";
@@ -41,8 +41,8 @@ export type Context =
       // shown when the document's is on and one of them reads as chemistry.
       script?: "sub" | "super"; font?: string; fonts?: string[]; labelable?: boolean; chemical?: boolean;
       // cycleSide: one picked caption that is a cycle's reagent (in) or product (out): moved from where Octet puts it,
-      // and inside the circle.
-      cycleSide?: { side: "in" | "out"; moved: boolean; inside: boolean; through: boolean } }
+      // and inside the circle. cycleName: one picked caption that is a step's name, moved from where Octet puts it.
+      cycleSide?: { side: "in" | "out"; moved: boolean; inside: boolean; through: boolean }; cycleName?: { moved: boolean } }
   // size: the heads' palette size ("own" for a size set by hand), when the arrows have heads. ratio: an equilibrium's.
   // fillable: closed curves and block arrows, which take a fill.
   | { kind: "arrow"; count: number; arrow: ArrowKind; curved: boolean; sweep?: number; style: string; orbital?: { shape: OrbitalShape; phase: Phase };
@@ -51,7 +51,7 @@ export type Context =
   | { kind: "shape"; count: number; shape: ShapeKind; dashed: boolean; boldLine: boolean; colour: string; style: string; side: string; mark: string; rf: boolean; lines: TableLine[]; cellAlign?: string; weight: number; cell: boolean; hide?: string[];
       shade: { depth: number; blur: number; opacity: number; pt: number }; text?: LabelText;
       ticks?: boolean; transparent?: boolean; lane?: boolean; rgroup?: boolean } // a TLC plate's side ticks and transparency, and whether a lane is picked
-  | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean; width: number }
+  | { kind: "cycle"; clockwise: boolean; steps: number; centre: boolean; width: number; gap: number }
   | { kind: "reaction"; steps: number; structures: number; clean: boolean; mapped: boolean; grid: boolean }
   // A stoichiometry grid's cell picked: its column a product or a reactant (the limiting one or not), and whether any
   // of the grid's rows or columns are hidden.
@@ -363,6 +363,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
           it(<ArrowBendDownRight size={18} />, c.through ? "Stop at the cycle" : "Pass through the cycle", "cycle.side.through"));
         if (c.moved) items.push(it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset"));
       }
+      if (context.cycleName?.moved) items.push(it(<ClockCounterClockwise size={18} />, "Reset position", "cycle.side.reset"));
       if (context.attached) items.push(it(<LinkBreak size={18} />, "Un-tie from structure", "caption.detach"));
       else if (context.attachable) items.push(it(<LinkSimple size={18} />, "Tie to structure", "caption.attach"));
       items.push(small(it(<Paragraph size={18} />, "Line spacing…", "line_spacing")), ...turnings, rotate, centre, ...order, keep, del);
@@ -380,7 +381,7 @@ export function actionItems(context: Context, messy: boolean, hiddenWarnings = f
       break;
     case "cycle":
       if (!context.centre) items.push(it(<Textbox size={18} />, "Add a centre label", "cycle.centre"));
-      items.push(it(<SignIn size={18} />, "Add a reagent coming in", "cycle.in"), it(<SignOut size={18} />, "Add a product going out", "cycle.out"),
+      items.push(it(<SignIn size={18} />, "Add a reagent coming in", "cycle.in"), it(<SignOut size={18} />, "Add a product going out", "cycle.out"), it(<Tag size={18} />, "Add a step name", "cycle.name"),
         it(<CirclesThree size={18} />, "Tidy the cycle", "cycle.tidy"), small(it(<ArrowsCounterClockwise size={18} />, "Reverse the direction", "cycle.reverse")),
         small(it(<CircleDashed size={18} />, "Remove the cycle", "cycle.ungroup")), ...turnsAndFlips, ...objects, ...order, keep, del);
       break;
@@ -985,6 +986,7 @@ export function Actions({ open, context, analysis, problems, fonts, hiddenWarnin
         // lines, above).
         <div className="sliders" role="group" aria-label="Lines">
           <Slider name="Line width" value={context.kind === "shape" ? context.weight : context.width!} min={0.05} max={4} step={0.05} show={(v) => `${v.toFixed(2)} pt`} onChange={(v) => run(`lines.weight.${Math.round(v * 100)}`)} />
+          {context.kind === "cycle" && <Slider name="Gap" value={context.gap} min={0} max={24} step={0.5} show={(v) => `${v.toFixed(1)} pt`} onChange={(v) => run(`cycle.gap.${Math.round(v * 10)}`)} />}
         </div>
       )}
       {scale !== undefined && <ScaleField scale={scale} run={run} />}

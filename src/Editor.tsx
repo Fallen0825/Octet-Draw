@@ -70,7 +70,7 @@ import { cleanUpReaction, cleanUpReactions, findReaction, gapFor, layoutRow, rea
 import { alignByMap, clearScheme, interpret, mapScheme, rolesOf, type Part, type Role, type RoleStep } from "./interpret";
 import { SEARCHES, searchNow, searchQuery } from "./search";
 import { moduleOf, SettingsWindow, type ModuleId } from "./SettingsWindow";
-import { addStop, angleAbout, breakAt, joinCycles, layoutCycles, orderAround, removeStop, sideFor, sideReach, spreadCycle, stepAt, type Cycle, type CycleLayout, type CycleText } from "./cycle";
+import { addStop, angleAbout, breakAt, isSide, joinCycles, layoutCycles, onStep, orderAround, removeStop, sideAt as sidePlace, sideFor, sideReach, spreadCycle, stepAt, textOn, type Cycle, type CycleLayout, type CycleText } from "./cycle";
 import { LIBRARY, libraryItem, type LibraryItem } from "./library";
 import { BracketGlyph, BRACKETS, bracketSpec, ElementGlyph, ORBITAL_GRID, OrbitalGlyph, orbitalName, orbitalSpec, SHAPE_EXTRA, SHAPE_GRID, shapeName, shapeSpec } from "./elements";
 import {
@@ -167,7 +167,8 @@ type Make = { kind: "line" | "arc" | "orbital" | "cut"; bend?: number; style?: A
 // A handle: an arrow's ends or middle, or a picked caption's width. head: the barb of an arrow's end head, which
 // sizes the head. add: the mark in a straight arrow's middle, which a click turns into a point (and only then does
 // the arrow bend). A pen curve's point i: its anchor (at) or one of its handles (c1 in, c2 out).
-type Corner = "from" | "to" | "bend" | "width" | "head" | "add" | `p${number}:${"at" | "c1" | "c2"}`;
+// end, meet and tail: a cycle's reagent or product's arrow: its outer end, where it touches the arc, and its tail.
+type Corner = "from" | "to" | "bend" | "width" | "head" | "add" | "end" | "meet" | "tail" | `p${number}:${"at" | "c1" | "c2"}`;
 // arrow: an arrow or a shape (they share ids).
 // key: the keyboard hotspot (ChemDraw's), put there by a key rather than by the pointer.
 type Hover = { atom?: number; bond?: number; caption?: number; arrow?: number; cycle?: number; step?: number; key?: true };
@@ -178,6 +179,13 @@ const hitIn = (m: Mol, p: P): Hover => {
 // The atoms an atom or bond hit stands for.
 const atomsOf = (m: Mol, t: Hover) => (t.atom !== undefined ? [t.atom] : t.bond !== undefined ? m.bonds[t.bond].atoms : []);
 // The object a hit stands for: a caption, an arrow or shape, or a cycle.
+// Text set as a formula (K2CO3 as K₂CO₃): a cycle's reagents, products, centre label and text intermediates, not its
+// steps' names.
+const asFormula = (c: Caption) => !!c.cycle && c.cycle.side !== "name";
+// Whether a reagent's or product's arrow is one with the other's on its step, and whether it passes through the cycle
+// (paired, or given a tail).
+const paired = (m: Mol, t: CycleText) => t.through !== false && !!m.captions?.some((x) => x.cycle?.cycle === t.cycle && x.cycle.step === t.step && isSide(x.cycle) && x.cycle.side !== t.side && x.cycle.through !== false);
+const passes = (m: Mol, t: CycleText) => t.through === true || paired(m, t);
 const itemsOf = (t: Hover) => [t.caption, t.arrow, t.cycle].filter((x): x is number => x !== undefined);
 
 // One pointer gesture. "working" kinds edit a copy of the drawing that commits as one undo step on release.
@@ -921,10 +929,11 @@ export default function Editor() {
   // caption made an atom by a bond tool, then the bond drawn from it).
   const joinNext = useRef<string>(undefined);
   const set = (mol: Mol, keepSelection = false, merge = joinNext.current) => {
-    // A structure an edit moves or adds onto a catalytic cycle's circle joins the cycle (joinCycles).
+    // A structure or text an edit moves or adds onto a catalytic cycle's circle joins the cycle (joinCycles).
     const moved = (m: Mol) => (i: number) => { const a = doc.atoms[i]?.location, b = m.atoms[i].location; return !a || a[0] !== b[0] || a[1] !== b[1]; };
+    const movedText = (c: Caption) => { const was = doc.captions?.find((x) => x.id === c.id); return !was || was.x !== c.x || was.y !== c.y; };
     const fitted = placeCentres(carryDepth(doc, settings.warnings ? showWarnedHydrogens(mol) : mol));
-    const next = onTop(doc, wholeGroups(fitted.cycles?.length ? joinCycles(fitted, fragments(fitted), moved(fitted)) : fitted), fragments);
+    const next = onTop(doc, wholeGroups(fitted.cycles?.length ? joinCycles(fitted, fragments(fitted), moved(fitted), movedText) : fitted), fragments);
     dispatch({ type: "set", mol: next, merge });
     if (!keepSelection) { setSelection(new Set()); setPicked(new Set()); }
     return next;
@@ -2605,18 +2614,20 @@ export default function Editor() {
     const width = (t: string, c: Caption, j = 0) => {
       const px = (c.size ?? style.captionSize) * pt;
       if (c.runs) return (richLines(c.runs)[j] ?? []).reduce((w, r) => w + textWidth(r.text, (r.size ? r.size * pt : px) * (r.script ? 0.75 : 1), r.bold ?? c.bold, r.italic ?? c.italic, fontStack(r.font ?? c.font ?? style.captionFont)), 0);
-      return (c.on || c.cycle ? formulaWidth : textWidth)(t, px, c.bold, c.italic, fontStack(c.font ?? style.captionFont));
+      return (c.on || asFormula(c) ? formulaWidth : textWidth)(t, px, c.bold, c.italic, fontStack(c.font ?? style.captionFont));
     };
     const fitted = fitArrows(m, L, (c) => Math.max(...c.text.split("\n").map((t, j) => width(t, c, j))), pt);
-    // Catalytic cycles: their arcs, side arrows and labels follow wherever their intermediates are.
-    const cycles = layoutCycles(m, L, pt, (atoms) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])));
-    const same = (a: readonly Arrow[], b: readonly Arrow[]) => a.length === b.length && a.every((x, i) => x === b[i] || JSON.stringify(x) === JSON.stringify(b[i]));
-    if (!same(fitted, laid.current.arrows)) laid.current.arrows = fitted;
-    if (!same(cycles.arrows, laid.current.cycles)) laid.current.cycles = cycles.arrows;
     // A piece of text in a run's style: its width, for captions with a width (their lines wrap to it), and its reach
     // above and below the baseline, for Variable line spacing.
     const face = (c: Caption, r: RunStyle) => [(r.size ? r.size * pt : (c.size ?? style.captionSize) * pt) * (r.script ? 0.75 : 1), r.bold ?? c.bold, r.italic ?? c.italic, fontStack(r.font ?? c.font ?? style.captionFont)] as const;
     const measure = (t: string, c: Caption, r: RunStyle) => textWidth(t, ...face(c, r)), extent = (t: string, c: Caption, r: RunStyle) => textExtent(t, ...face(c, r));
+    // Catalytic cycles: their arcs, side arrows and labels follow wherever their intermediates are, text ones included.
+    const nodeText = (m.captions ?? []).filter((c) => c.cycle?.side === "node");
+    const texts = nodeText.length ? placeCaptions({ ...m, captions: nodeText }, drawing, width, fitted, pt, style.captionSize, new Map(), measure, extent) : [];
+    const cycles = layoutCycles(m, L, pt, (atoms) => union(atoms.filter((i) => drawing.ink[i]).map((i) => drawing.ink[i])), (id) => texts.find((x) => x.id === id)?.box);
+    const same = (a: readonly Arrow[], b: readonly Arrow[]) => a.length === b.length && a.every((x, i) => x === b[i] || JSON.stringify(x) === JSON.stringify(b[i]));
+    if (!same(fitted, laid.current.arrows)) laid.current.arrows = fitted;
+    if (!same(cycles.arrows, laid.current.cycles)) laid.current.cycles = cycles.arrows;
     return { placed: placeCaptions(m, drawing, width, fitted, pt, style.captionSize, cycles.anchors, measure, extent), arrows: laid.current.arrows, cycleArrows: laid.current.cycles, cycleLayout: cycles as CycleLayout };
   }, [shown, drawing, writing, style, pt]);
   // A caption as a lone atom labelled with its text, in the caption's size, font, style and colour. The label's first
@@ -2637,7 +2648,7 @@ export default function Editor() {
   // The structure for the name being typed, where it will land (after the arrows and text, which landing reads).
   const ghost = useMemo(() => named && render(moveAtoms(named, new Set(named.atoms.map((_, i) => i)), landing(named)), frame, measure, L), [named, doc, frame, measure, placed, arrows]); // eslint-disable-line react-hooks/exhaustive-deps
   // Reaction conditions and a cycle's reagents print formulas with subscripts (K2CO3 as K₂CO₃).
-  const reagents = useMemo(() => new Set((shown.captions ?? []).filter((c) => c.on || c.cycle).map((c) => c.id)), [shown]);
+  const reagents = useMemo(() => new Set((shown.captions ?? []).filter((c) => c.on || asFormula(c)).map((c) => c.id)), [shown]);
   // Each object's ink is drawn in its layer, or on its own under or over all the layers when it has a draw order
   // (Bring to Front, Send to Back; order.ts). level: a thing that is drawn in its layer.
   const level = (x?: { order?: number }) => !x?.order;
@@ -3150,10 +3161,12 @@ export default function Editor() {
       captions: m.captions?.map((c) => {
         const from = captions.get(c.id);
         if (!from) return c;
-        // A cycle's reagent or product stays on its cycle: its arrow's outer end (from) goes where it is dragged.
-        if (c.cycle && c.cycle.side !== "centre") {
-          const f = doc.cycles?.find((y) => y.id === c.cycle!.cycle)?.scale ?? 1, to = sideFor(cycleLayout, c.cycle, [(from[0] + d[0]) * L, -(from[1] + d[1]) * L], L, f);
-          return to ? { ...c, cycle: { ...c.cycle, ...to } } : c;
+        // A cycle's reagent or product stays on its cycle: its arrow's outer end (from) goes where it is dragged. A
+        // step's name goes along its step the same way; an intermediate written as text stays one.
+        if (c.cycle?.side === "node") return { ...c, x: from[0] + d[0], y: from[1] + d[1] };
+        if (onStep(c.cycle)) {
+          const f = doc.cycles?.find((y) => y.id === c.cycle!.cycle)?.scale ?? 1, to = sideFor(cycleLayout, c.cycle!, [(from[0] + d[0]) * L, -(from[1] + d[1]) * L], L, f);
+          return to ? { ...c, cycle: { ...c.cycle!, ...to } } : c;
         }
         const { under: _u, on: _o, cycle: _c, placed: _p, ...free } = c;
         return { ...free, x: from[0] + d[0], y: from[1] + d[1] };
@@ -3168,19 +3181,29 @@ export default function Editor() {
         // The text stays where it is (a placed one), and its arrow turns round.
         if (what === "side.swap") return { ...t, side: t.side === "in" ? "out" : "in" };
         // Inside, the end stays no nearer the middle than a fifth of the radius.
-        if (what === "side.through") return { ...t, through: !t.through };
+        if (what === "side.through") return { ...t, through: !passes(doc, t), tail: undefined };
         if (what === "side.inside") { const r = doc.cycles?.find((y) => y.id === t.cycle)?.radius ?? 3; return { ...t, reach: sideReach(t) > 0 ? -Math.min(sideReach(t), 0.8 * r) : -sideReach(t) }; }
-        const { at: _a, reach: _r, ...rest } = t;
+        const { at: _a, reach: _r, meet: _m, tail: _t, ...rest } = t;
         return rest;
       };
-      return set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) && c.cycle && c.cycle.side !== "centre" ? { ...c, cycle: change(c.cycle) } : c)) }, true);
+      return set({ ...doc, captions: doc.captions?.map((c) => (picked.has(c.id) && (what === "side.reset" ? onStep(c.cycle) : isSide(c.cycle)) ? { ...c, cycle: change(c.cycle!) } : c)) }, true);
     }
-    const ink = (atoms: number[]) => inkOf(atoms);
-    // Breaks go round evenly with the intermediates. A circle with no structures on it stays as it is.
+    // The clear space round each intermediate, in tenths of a point.
+    if (what.startsWith("gap.")) {
+      const g = Number(what.slice(4)) / 10;
+      return set({ ...doc, cycles: doc.cycles?.map((c) => (picked.has(c.id) ? { ...c, gap: g } : c)) }, true, `cycle-gap-${[...picked].join()}`);
+    }
+    // An intermediate's ink: its structure's, or its text's.
+    const ink = (c: Cycle) => (atoms: number[], i: number) => { const t = atoms.length ? undefined : textOn(doc, c, i); return t ? placed.find((x) => x.id === t.id)?.box : inkOf(atoms); };
+    // Breaks go round evenly with the intermediates. A circle with no structures or text on it stays as it is.
     const spread = (m: Mol, c: Cycle) => {
-      if (!c.nodes.some((n) => n.length)) return m;
-      const { shifts, radius } = spreadCycle(c, L, ink), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
-      c.nodes.forEach((n, i) => { m = moveAtoms(m, new Set(n), shifts[i]); });
+      if (!c.nodes.some((n, i) => n.length || textOn(m, c, i))) return m;
+      const { shifts, radius } = spreadCycle(c, L, ink(c)), even = c.nodes.map((_, i) => Math.PI / 2 - ((c.clockwise ? 1 : -1) * 2 * Math.PI * i) / c.nodes.length);
+      c.nodes.forEach((n, i) => {
+        m = moveAtoms(m, new Set(n), shifts[i]);
+        const t = n.length ? undefined : textOn(m, c, i);
+        if (t) m = updateCaption(m, t.id, { x: t.x + shifts[i][0], y: t.y + shifts[i][1] });
+      });
       return { ...m, cycles: m.cycles?.map((x) => (x.id === c.id ? { ...x, radius, ...(x.at ? { at: even } : {}) } : x)) };
     };
     if (what === "make") {
@@ -3197,10 +3220,10 @@ export default function Editor() {
     if (what === "tidy") return set(spread(doc, c), true);
     if (what === "reverse") return set({ ...doc, cycles: doc.cycles?.map((x) => (x.id === c.id ? { ...x, clockwise: !x.clockwise } : x)) }, true);
     if (what === "ungroup") return set(deleteGraphics(doc, new Set([c.id])));
-    if (what === "centre" || what === "in" || what === "out") {
+    if (what === "centre" || what === "in" || what === "out" || what === "name") {
       setPicked(new Set());
       setSelection(new Set());
-      return openWriting({ value: "", cycle: { cycle: c.id, step: what === "centre" ? 0 : cycleStep, side: what, ...(what !== "centre" ? { through: true } : {}) }, style: { ...textStyle } });
+      return openWriting({ value: "", cycle: { cycle: c.id, step: what === "centre" ? 0 : cycleStep, side: what }, style: { ...textStyle, ...(what === "name" ? { italic: true } : {}) } });
     }
   }
   // The Cycle tool. A new cycle drawn from its centre out to a point, turning clockwise, with no nodes yet.
@@ -3210,17 +3233,17 @@ export default function Editor() {
   // The cycle whose circle passes within a few px of a point.
   const circleAt = (p: P) => (doc.cycles ?? []).find((c) => Math.abs(Math.hypot(p[0] - c.centre[0], p[1] - c.centre[1]) - c.radius) * L * views.get().zoom < 8);
   // A drag draws a circle, and structures already on it join it. A click on a circle breaks it there (or joins it up
-  // again at a break); a click away from any circle draws one three bond lengths across. Reagent in and Product out:
-  // a click on a step of a circle adds the text coming in or going out there, or edits the text already there.
+  // again at a break); a click away from any circle draws one three bond lengths across. Reagent in, Product out and
+  // Step name: a click on a step of a circle adds that text there, or edits the text already there.
   function releaseCycle(from: P, to?: P) {
     const c = circleAt(from);
     if (cycleChoice !== "circle") {
       if (!c) return setNotice("Click a catalytic cycle's circle.", "info");
-      const side = cycleChoice as "in" | "out", step = stepAt(doc, c, angleAbout(c, from)), there = doc.captions?.find((x) => x.cycle?.cycle === c.id && x.cycle.step === step && x.cycle.side === side);
+      const side = cycleChoice as "in" | "out" | "name", step = stepAt(doc, c, angleAbout(c, from)), there = doc.captions?.find((x) => x.cycle?.cycle === c.id && x.cycle.step === step && x.cycle.side === side);
       setSelection(new Set());
       setPicked(new Set());
       if (there) return openWriting({ id: there.id, value: there.text, runs: runsOf(there).map((x) => ({ ...x })), version: 0, style: {} });
-      return openWriting({ value: "", cycle: { cycle: c.id, step, side, through: true }, style: { ...textStyle } });
+      return openWriting({ value: "", cycle: { cycle: c.id, step, side }, style: { ...textStyle, ...(side === "name" ? { italic: true } : {}) } });
     }
     if (!to && c) {
       const a = angleAbout(c, from), gap = breakAt(doc, c, a, 10 / (c.radius * L * views.get().zoom));
@@ -3578,10 +3601,18 @@ export default function Editor() {
     const hx = c.anchor === "end" ? (w ? x - k : c.box[0]) - m : (c.anchor === "middle" ? (w ? x + k / 2 : c.box[2]) : w ? x + k : c.box[2]) + m;
     return { id: c.id, at: [hx / L, -(c.box[1] + c.box[3]) / 2 / L], c };
   };
+  // The one picked reagent's or product's arrow handles (sideHandles).
+  const sideHandles = () => {
+    const ids = [...picked], c = ids.length === 1 && !selection.size && !writing ? shown.captions?.find((x) => x.id === ids[0]) : undefined;
+    const h = c && isSide(c.cycle) ? cycleLayout.handles.get(c.id) : undefined;
+    return h && { id: c!.id, h };
+  };
   // The handle of the one picked arrow under a point: its ends, and the middle of a curved one.
   const handleAt = (p: P): { id: number; which: Corner } | undefined => {
     const ids = [...picked], a = ids.length === 1 && !selection.size ? arrows.find((x) => x.id === ids[0]) : undefined;
     const near = (q: [number, number]) => Math.hypot(p[0] - q[0], p[1] - q[1]) * L * views.get().zoom < 8;
+    const side = sideHandles();
+    if (side) for (const which of ["meet", "tail", "end"] as const) { const q = side.h[which]; if (q && near(q)) return { id: side.id, which }; }
     const wh = widthHandle();
     if (wh && near(wh.at)) return { id: wh.id, which: "width" };
     // A picked pen curve's anchors, then their handles; a fragmentation line's corners and ends.
@@ -4082,6 +4113,20 @@ export default function Editor() {
           const x = cap.lines[0].x / L, m = (HANDLE_GAP * cap.size) / L, d = cap.anchor === "end" ? x - p[0] - m : cap.anchor === "middle" ? 2 * (Math.abs(p[0] - x) - m) : p[0] - x - m;
           const longest = Math.max(...(doc.captions?.find((c) => c.id === cap.id)?.text.split("\n") ?? []).map((t) => textWidth(t, cap.size, cap.bold, cap.italic, fontStack(cap.font ?? style.captionFont)))) / L;
           return setDrag({ ...drag, working: updateCaption(doc, cap.id, { width: d >= longest ? undefined : Math.max(0.5, d) }) });
+        }
+        // A reagent's or product's arrow: its outer end goes where it is dragged, as its text does. Where it touches the
+        // arc slides along the step; pulled well off the circle it becomes a tail (a lone arrow's), and the text stays
+        // where it is. A tail dragged back onto the circle goes.
+        const side = drag.which === "end" || drag.which === "meet" || drag.which === "tail" ? doc.captions?.find((x) => x.id === drag.id) : undefined;
+        if (side?.cycle) {
+          const t = side.cycle, cy = doc.cycles?.find((y) => y.id === t.cycle), f = cy?.scale ?? 1, q = cy && sideFor(cycleLayout, t, [p[0] * L, -p[1] * L], L, f);
+          if (!q) return;
+          const off = Math.abs(Math.hypot(p[0] - cy.centre[0], p[1] - cy.centre[1]) - cy.radius) / f, two = paired(doc, t);
+          const change: Partial<CycleText> = drag.which === "end" ? q
+            : drag.which === "meet" ? (off < 0.6 || two ? { meet: q.at } : { through: true, tail: [q.at, q.reach], at: t.at ?? sidePlace(t) })
+            : off < 0.4 ? { through: undefined, tail: undefined, meet: undefined } : { tail: [q.at, q.reach] };
+          const partner = (x: Caption) => drag.which === "meet" && two && x.cycle?.cycle === t.cycle && x.cycle.step === t.step && isSide(x.cycle) && x.cycle.side !== t.side;
+          return setDrag({ ...drag, working: { ...doc, captions: doc.captions?.map((x) => (x.id === side.id || partner(x) ? { ...x, cycle: { ...x.cycle!, ...(x.id === side.id ? change : { meet: q.at }) } } : x)) } });
         }
         const a = doc.arrows?.find((x) => x.id === drag.id);
         if (!a) return;
@@ -4810,7 +4855,7 @@ export default function Editor() {
     // A cycle picked (with its intermediates), when it is all that is picked.
     const mix = mixOf();
     const pickedCycle = (doc.cycles ?? []).find((c) => picked.has(c.id));
-    if (pickedCycle && mix.kinds === 1) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre"), width: widthOf(pickedCycle) };
+    if (pickedCycle && mix.kinds === 1) return { kind: "cycle", clockwise: pickedCycle.clockwise, steps: pickedCycle.nodes.length, centre: !!doc.captions?.some((c) => c.cycle?.cycle === pickedCycle.id && c.cycle.side === "centre"), width: widthOf(pickedCycle), gap: pickedCycle.gap ?? 6 };
     // Different kinds of thing picked together (an arrow and a box, a caption and an atom, everything): what applies to
     // all of them. Lines picked together (arrows, shapes and cycles only) share one line width.
     const lined = mix.lines ? lineOf([...(doc.arrows ?? []), ...(doc.shapes ?? []), ...(doc.cycles ?? [])].filter((x) => picked.has(x.id))) : undefined;
@@ -4858,7 +4903,8 @@ export default function Editor() {
       if (c) {
         const p = placed.find((x) => x.id === c.id), w = whole(c);
         return { kind: "caption", mode: "picked", colour: w.colour ?? style.colour, convertible: cs.length === 1 && namesLoaded && !!(nameToSmiles(c.text) || looksLikeSmiles(c.text) || suggestName(c.text, false)), count: cs.length, bold: !!w.bold, italic: !!w.italic, underline: !!w.underline, size: w.size ?? style.captionSize, align: c.align ?? "centre", attached: !!c.under, attachable: !c.under && !!p && !!structureAbove(anchorOf(p), 4) , font: w.font ?? style.captionFont, fonts: fontList, labelable: cs.some(labelable),
-          ...(cs.length === 1 && c.cycle && c.cycle.side !== "centre" ? { cycleSide: { side: c.cycle.side, moved: c.cycle.at !== undefined || c.cycle.reach !== undefined, inside: sideReach(c.cycle) < 0, through: !!c.cycle.through } } : {}),
+          ...(cs.length === 1 && isSide(c.cycle) ? { cycleSide: { side: c.cycle!.side as "in" | "out", moved: ["at", "reach", "meet", "tail"].some((k) => c.cycle![k as keyof CycleText] !== undefined), inside: sideReach(c.cycle!) < 0, through: passes(doc, c.cycle!) } } : {}),
+          ...(cs.length === 1 && c.cycle?.side === "name" ? { cycleName: { moved: c.cycle.at !== undefined || c.cycle.reach !== undefined } } : {}),
           // Their Interpret chemically, while the document's is on: whether each one that reads as chemistry has it on.
           ...(style.interpret && cs.some(labelable) ? { chemical: cs.filter(labelable).every((x) => x.chemical !== false) } : {}) };
       }
@@ -7322,6 +7368,8 @@ export default function Editor() {
                 </g>
               );
             }
+            const side = drag?.kind === "move" || (drag?.kind === "handle" && !["end", "meet", "tail"].includes(drag.which)) ? undefined : sideHandles();
+            if (side) return [side.h.end, side.h.meet, side.h.tail].flatMap((q, i) => (q ? [<circle key={`cs${i}`} className="handle" cx={q[0] * L} cy={-q[1] * L} r={4 / view.zoom} vectorEffect="non-scaling-stroke" />] : []));
             if ((!a || a.kind === "curve") && !wh) return null;
             const barb = !wh && a ? headBarb(a, frame, L) : undefined;
             const points = wh ? [wh.at] : [a!.from, a!.to, ...(curved(a!) || a!.point ? [bendPoint(a!)] : []), ...(barb ? [[barb[0] / L, -barb[1] / L] as P] : [])];
