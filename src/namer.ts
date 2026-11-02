@@ -278,6 +278,7 @@ class Namer {
   pseudo = new Set<number>(); // the atoms of groups cited only as prefixes (isocyanato, cyanato), which are not carbon parents
   prefixOnly = new Map<number, string>(); // such a group's attachment atom → its prefix
   whole?: string; // the name of a molecule that is one such group with H: isocyanic acid, cyanic acid
+  locants?: Map<number, string>; // the parent chain's or ring's atoms and their locants, as the name numbers them
   diimine = new Set<number>(); // carbodiimide carbons, R-N=C=N-R
   nO = new Set<number>(); // the O of N-hydroxy and N-alkoxy amides, ureas and carbamates
   hzN = new Set<number>(); // the N atoms of a hydrazine or diazene that is the parent of a carbonyl group on its N
@@ -1977,7 +1978,12 @@ class Namer {
     else if (!kind && this.phosphorus.size) text = this.phosphaneName();
     else {
       // Identical parents joined by a multiplying group (namer-multiplicative.ts): 2,2'-oxydi(ethan-1-ol).
-      text = multiplicativeName(this, kind, this.ionSkip(kind)) ?? this.parentName(kind, this.ionSkip(kind))?.text;
+      const multiplied = multiplicativeName(this, kind, this.ionSkip(kind)), parent = multiplied ? undefined : this.parentName(kind, this.ionSkip(kind));
+      text = multiplied ?? parent?.text;
+      if (parent?.parent && parent.label) {
+        this.locants = new Map();
+        for (const a of parent.parent.atoms) try { this.locants.set(a, parent.label(a)); } catch { /* an interior atom of a fused system has no locant */ }
+      }
       // Acid halides (P-65.5.1): acetyl chloride, butanedioyl dichloride, methanesulfonyl chloride.
       if (text && (kind === "halide" || kind === "sulfonylhalide" || kind === "imidoylhalide")) {
         const xs = [...Array(this.n).keys()].filter((x) => (HALO[this.el[x]] || this.prefixOnly.has(x)) && this.adj[x].some((j) => this.group[j] === kind));
@@ -2671,21 +2677,40 @@ export function iupacName(g: Graph): string | undefined {
   return iupacNameWhy(g).name;
 }
 
+// The IUPAC numbering of a structure's parent chain or ring, as its name numbers it (Show atom numbers): each atom's
+// locant ("1", "4a", "2'"), undefined for atoms off the parent. Undefined when the namer gives no name or names the
+// structure some other way (an ester, a salt, a multiplied parent).
+export function iupacLocants(g: Graph): (string | undefined)[] | undefined {
+  try {
+    const { g: folded, index } = foldIndexed(g);
+    if (fragments(folded).length !== 1) return undefined;
+    const n = new Namer(chargeSeparated(folded));
+    if (!n.name() || !n.locants) return undefined;
+    return g.atoms.map((_, i) => (index[i] === undefined ? undefined : n.locants!.get(index[i])));
+  } catch {
+    return undefined;
+  }
+}
+
 // Hydrogen drawn as an atom (an H label, a wedged H) counts on the atom it is bonded to.
 function foldHydrogens(g: Graph): Graph {
+  return foldIndexed(g).g;
+}
+// The same, with where each atom went (undefined for an H folded in).
+function foldIndexed(g: Graph): { g: Graph; index: (number | undefined)[] } {
   const bonds = (i: number) => g.bonds.filter((b) => b.a === i || b.b === i);
   const other = (i: number) => { const b = bonds(i)[0]; return b.a === i ? b.b : b.a; };
   const drop = g.atoms.map((a, i) => a.el === "H" && !a.charge && !a.h && bonds(i).length === 1 && bonds(i)[0].order === 1 && g.atoms[other(i)].el !== "H");
-  if (!drop.some(Boolean)) return g;
-  const index: number[] = [], atoms: Graph["atoms"] = [];
+  if (!drop.some(Boolean)) return { g, index: g.atoms.map((_, i) => i) };
+  const index: (number | undefined)[] = [], atoms: Graph["atoms"] = [];
   g.atoms.forEach((a, i) => { if (!drop[i]) { index[i] = atoms.length; atoms.push({ ...a }); } });
   g.atoms.forEach((a, i) => {
     if (!drop[i]) return;
-    const to = atoms[index[other(i)]];
+    const to = atoms[index[other(i)]!];
     to.h++;
     if (a.iso) to.hx = [...(to.hx ?? []), a.iso]; // deuterium and tritium: their mass numbers (namer-maingroup.ts)
   });
-  return { atoms, bonds: g.bonds.filter((b) => !drop[b.a] && !drop[b.b]).map((b) => ({ ...b, a: index[b.a], b: index[b.b] })) };
+  return { g: { atoms, bonds: g.bonds.filter((b) => !drop[b.a] && !drop[b.b]).map((b) => ({ ...b, a: index[b.a]!, b: index[b.b]! })) }, index };
 }
 
 // The name, or why Octet cannot name the structure yet (the namer's reason, for its tests and the gap survey).

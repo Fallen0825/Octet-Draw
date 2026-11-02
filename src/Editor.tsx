@@ -85,7 +85,7 @@ import { isTemplateFile, readTemplateFile, writeTemplateFile } from "./ctp";
 import { casProblem, nameList } from "./dictionary";
 import { commonKey } from "./common";
 import { checkedName, graphOf, setComplexNamer, setNamer, withAbbreviation } from "./naming";
-import { iupacName } from "./namer";
+import { iupacLocants, iupacName } from "./namer";
 import { sandwichIons } from "./metals";
 import { complexName } from "./complexes";
 import { mixtureName, mixturesOf, withSalts, type Mixture } from "./mixtures";
@@ -1652,11 +1652,21 @@ export default function Editor() {
   // Show or hide atom numbers. Each atom's number is its place in its structure, counting from 1, as ChemDraw numbers
   // atoms in the order they were drawn, or the number it keeps hidden. When every one of the atoms already shows its
   // number, they are hidden, and kept, as ChemDraw keeps them.
-  function numberAtoms(atoms: number[]) {
-    const hide = atoms.every((i) => doc.atoms[i]?.number), place = new Map<number, number>();
+  // iupac (Show atom numbers in the Actions panel): a structure Octet can name is numbered as its IUPAC name numbers
+  // its parent chain or ring, as ChemDraw's IUPAC atom numbers; its other atoms show none. Shown numbers then hide.
+  function numberAtoms(atoms: number[], iupac = false) {
+    const hide = iupac ? atoms.some((i) => doc.atoms[i]?.number) : atoms.every((i) => doc.atoms[i]?.number), place = new Map<number, number>();
     for (const g of fragments(doc)) [...g].sort((p, q) => p - q).forEach((i, k) => place.set(i, k + 1));
+    const locants = new Map<number, string | undefined>();
+    if (iupac && !hide) for (const g of fragments(doc)) {
+      if (!g.some((i) => atoms.includes(i))) continue;
+      const sorted = [...g].sort((p, q) => p - q), graph = graphOf(expandLabels(subset(doc, new Set(sorted)))), l = graph && iupacLocants(graph);
+      if (l) sorted.forEach((i, k) => locants.set(i, l[k]));
+    }
+    if (iupac && !hide && !locants.size) setNotice("Octet has no name for this structure, so it numbers the atoms in the order they were drawn.", "info");
     const flip = (a: Atom, i: number): Atom => {
       const { number, hiddenNumber, ...rest } = a;
+      if (locants.has(i)) { const l = locants.get(i); return l ? { ...rest, number: l } : rest; }
       return hide ? { ...rest, hiddenNumber: number } : number ? a : { ...rest, number: hiddenNumber ?? String(place.get(i) ?? 1) };
     };
     set({ ...doc, atoms: doc.atoms.map((a, i) => (atoms.includes(i) ? flip(a, i) : a)) }, true);
@@ -2091,7 +2101,7 @@ export default function Editor() {
       });
     },
     // Show Atom Number (Object menu): each atom's number beside it, for the selected atoms or the whole drawing.
-    atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i)),
+    atom_numbers: () => numberAtoms(selection.size ? [...selection] : doc.atoms.map((_, i) => i), true),
     // Page Setup (⇧⌘P): the page's size and orientation, which live in the document's settings.
     page_setup: () => setSettingsOpen("document"),
     // Analyse Stoichiometry: a grid under the picked reaction, or off again.
