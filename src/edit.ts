@@ -237,6 +237,8 @@ export const keyElement = (m: Mol, i: number, label: string) => (label === "C" ?
 export function setLabel(m: Mol, i: number, text: string): Mol {
   // A label of more than one line (Option-Return as it is typed) keeps its lines, each trimmed, empty ones left out.
   const t = text.split("\n").map((s) => s.trim()).filter(Boolean).join("\n");
+  // A label that becomes an element leaves its contracted group behind.
+  if (m.atoms[i].inner && (!t || t === "C" || isElement(t))) m = setAtom(m, i, { inner: undefined });
   if (!t) return setElement(m, i, "C");
   if (t === "C") return showCarbon(m, i);
   if (isElement(t)) return setElement(m, i, t);
@@ -858,7 +860,7 @@ export function expandLabel(m: Mol, i: number, frag: Mol, way?: P): Mol {
   if (!frag.atoms.length) return m;
   const rest = frag.atoms.slice(1), place = labelPlacer(m, i, frag, way);
   const base = m.atoms.length, to = (k: number) => (k === 0 ? i : base + k - 1);
-  const atoms = m.atoms.map((a, k) => (k === i ? { ...a, label: frag.atoms[0].label, text: undefined, charge: frag.atoms[0].charge } : a));
+  const atoms = m.atoms.map((a, k) => (k === i ? { ...a, label: frag.atoms[0].label, text: undefined, charge: frag.atoms[0].charge, inner: undefined } : a));
   for (const a of rest) atoms.push({ ...a, location: place(a.location) });
   return { ...m, atoms, bonds: [...m.bonds, ...frag.bonds.map((b) => ({ ...b, atoms: [to(b.atoms[0]), to(b.atoms[1])] as [number, number] }))] };
 }
@@ -873,8 +875,14 @@ export function labelPlacer(m: Mol, i: number, frag: Mol, way?: P): (q: [number,
   return (q) => { const dx = q[0] - a0[0], dy = q[1] - a0[1]; return [at[0] + dx * c - dy * s, at[1] + dx * s + dy * c, 0]; };
 }
 // Contract Label: the atoms in `group` other than `keep` go, and `keep` (the one bonded to the rest) carries the label.
+// The group stays with the label (inner), so Expand Label gives it back whatever the label says.
 export function contractLabel(m: Mol, keep: number, group: Set<number>, text: string): Mol {
-  const labelled = { ...m, atoms: m.atoms.map((a, k) => (k === keep ? { ...a, text, label: anchorElement(text) ?? a.label, charge: undefined } : a)) };
+  const order = [keep, ...[...group].filter((k) => k !== keep)], at = new Map(order.map((k, n) => [k, n]));
+  const inner: Mol = {
+    atoms: order.map((k) => { const { inner: _, text: __, ...a } = m.atoms[k]; return a; }),
+    bonds: m.bonds.filter((b) => at.has(b.atoms[0]) && at.has(b.atoms[1])).map((b) => ({ ...b, atoms: [at.get(b.atoms[0])!, at.get(b.atoms[1])!] as [number, number] })),
+  };
+  const labelled = { ...m, atoms: m.atoms.map((a, k) => (k === keep ? { ...a, text, label: anchorElement(text) ?? a.label, charge: undefined, inner } : a)) };
   return removeAtoms(labelled, new Set([...group].filter((k) => k !== keep)));
 }
 export function moveAtoms(m: Mol, ids: Set<number>, d: P): Mol {

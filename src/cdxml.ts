@@ -609,7 +609,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
     // Interpret Chemically off is a node of no known kind (Unspecified), its text marked as not chemistry.
     const plain = a.chemical === false, q = plain ? undefined : queryLabel(a.text), named = q === "generic" ? altIds.get(a.text!) : undefined;
     const list = q === "list" ? elementList(a.text!) : undefined, link = q === "link" ? linkNode(a.text!) : undefined, alts = q === "alt" ? altGroup(a.text!) : undefined;
-    const inner = a.text && !q && !plain ? opts.expand?.(a.text) : undefined;
+    const known = a.text && !q && !plain ? opts.expand?.(a.text) : undefined, inner = known ?? (a.text && !q && !plain ? a.inner : undefined);
     const type = a.centre ? (a.centre.variable ? "VariableAttachment" : "MultiAttachment") : a.attach || a.bead ? "ExternalConnectionPoint" : named !== undefined ? "NamedAlternativeGroup"
       : q === "generic" ? "GenericNickname" : list ? "ElementList" : link ? "LinkNode" : alts ? "AnonymousAlternativeGroup" : a.text ? (inner?.atoms.length ? "Fragment" : "Unspecified") : undefined;
     const element = link ? (link.generic ? undefined : atomicNumber(link.element)) : type ? undefined : atomicNumber(a.label);
@@ -638,7 +638,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       // (an atom with no bonds takes its scale back from it).
       LabelSize: shown && scaleOf(a) !== 1 ? fmtSize((a.size ?? style.labelSize) * scaleOf(a)) : undefined, LineWidth: scaleOf(a) !== 1 ? fmt(line * scaleOf(a)) : undefined,
       Octet: priv({ hmark: a.hmark, partial: a.partial, map: a.map, circle: a.circle, angles: a.angles, scale: ownScale(a) }),
-    }, (inner ? nested(i, inner) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
+    }, (inner ? nested(i, inner, !!known) : "") + alternatives.map((m) => nested(i, m)).join("") + (label?.xml ?? "") + assignTags(a.peaks));
     if (a.partial) note(a.partial === "+" ? "δ+" : "δ−", [X[0] + 0.45 * B * scaleOf(a), X[1] - 0.45 * B * scaleOf(a)] as P, (a.size ?? style.labelSize) * scaleOf(a) * 0.75, "left", a.colour);
     return { xml, box: label?.box ?? [X[0], X[1], X[0], X[1]] };
   }
@@ -753,7 +753,9 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
 
   // An abbreviation's own atoms, turned to point away from the host's bonds, with a connection point towards each
   // outer neighbour in the host's bond order (spec 13.3).
-  function nested(i: number, inner: Mol): string {
+  // derived: an abbreviation's atoms, written for ChemDraw only (Octet reads the label again); otherwise a contracted
+  // group Octet keeps with the label.
+  function nested(i: number, inner: Mol, derived = false): string {
     const X = page(i), out = nbrs[i].map((j) => { const d = sub(page(j), X), l = len(d) || 1; return [d[0] / l, d[1] / l] as P; });
     const away: P = out.length ? out.reduce<P>((s, d) => [s[0] - d[0], s[1] - d[1]], [0, 0]) : [1, 0];
     const o = inner.atoms[0].location, rel = (q: readonly number[]): P => [(q[0] - o[0]) * B, -(q[1] - o[1]) * B];
@@ -770,7 +772,7 @@ export function toCdxml(input: Mol, style: DocStyle, opts: CdxmlOptions = {}): s
       const point = fresh();
       xml += el("n", { id: point, p: pt([X[0] + d[0] * B, X[1] + d[1] * B]), NodeType: "ExternalConnectionPoint" }) + el("b", { id: fresh(), B: point, E: ids[0] });
     }
-    return el("fragment", { id: fresh() }, xml);
+    return el("fragment", { id: fresh(), Octet: derived ? DERIVED : undefined }, xml);
   }
 
   // A bond: order, display, forced double-bond side, colour, and its neighbours' order round a double bond (spec 13.4).
@@ -1319,6 +1321,25 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     }
   }
 
+  function readInner(f: Xml): Mol | undefined {
+    const nodes = f.kids.filter((k) => k.name === "n"), bonds = f.kids.filter((k) => k.name === "b");
+    if (nodes.length > 256 || bonds.length > 512) return undefined;
+    const points = new Set(nodes.filter((k) => k.attrs.NodeType === "ExternalConnectionPoint").map((k) => k.attrs.id));
+    const head = bonds.find((b) => points.has(b.attrs.B) || points.has(b.attrs.E)), first = head && (points.has(head.attrs.B) ? head.attrs.E : head.attrs.B);
+    const kept = nodes.filter((k) => !points.has(k.attrs.id) && reals(k.attrs.p, 2)).sort((x, y) => Number(y.attrs.id === first) - Number(x.attrs.id === first));
+    if (!kept.length) return undefined;
+    const at = new Map(kept.map((k, i) => [k.attrs.id, i]));
+    const atoms: Atom[] = kept.map((k) => {
+      const e = int(k.attrs.Element) ?? 6, q = reals(k.attrs.p, 2)!, iso = int(k.attrs.Isotope), charge = int(k.attrs.Charge);
+      return { label: e === 1 && iso === 2 ? "D" : e === 1 && iso === 3 ? "T" : e >= 1 && e <= 118 ? SYMBOLS[e - 1] : "C", location: [...toOctet(q[0], q[1]), 0], ...(charge && Math.abs(charge) <= 9 ? { charge } : {}) };
+    });
+    const inner: Bond[] = bonds.flatMap((b) => {
+      const p = at.get(b.attrs.B), q = at.get(b.attrs.E), order = b.attrs.Order === "2" ? 2 : b.attrs.Order === "3" ? 3 : 1;
+      return p !== undefined && q !== undefined && p !== q ? [{ atoms: [p, q] as [number, number], type: order }] : [];
+    });
+    return { atoms, bonds: inner };
+  }
+
   function readNode(n: Xml): number | undefined {
     const q = reals(n.attrs.p, 2);
     if (priv(n)?.d === 1) return undefined; // a connection point Octet wrote for ChemDraw only
@@ -1376,6 +1397,10 @@ export function fromCdxml(input: string | Xml): CdxmlRead {
     if (ab) aq.abundance = ab as AtomQuery["abundance"];
     if (yes(n.attrs.AbnormalValence)) aq.valence = true;
     if (Object.keys(aq).length) a.query = aq;
+    // A contracted label's fragment (ChemDraw's, or Octet's from Contract Label): its atoms, the one joined to the
+    // connection point first, kept for Expand Label. 255 atoms at most.
+    const nest = type === "Fragment" ? n.kids.find((k) => k.name === "fragment") : undefined;
+    if (nest && priv(nest)?.d !== 1) { const inner = readInner(nest); if (inner) a.inner = inner; }
     const i = mol.atoms.push(a) - 1;
     if (type === "MultiAttachment" || type === "VariableAttachment") centres.push({ i, ids: idList(n.attrs.Attachments).slice(0, 64), variable: type === "VariableAttachment" });
     if (n.attrs.Geometry === "Tetrahedral" && n.attrs.BondOrdering) tetra.push({ i, order: idList(n.attrs.BondOrdering).slice(0, 4) });

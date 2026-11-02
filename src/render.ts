@@ -25,6 +25,9 @@ type P = [number, number];
 // attachment, in ChemDraw's three styles: a wavy line across the bond at this end (true), or a diamond or a star on
 // the atom that the bond stops at. bead: a polymer bead (a resin sphere) at this atom.
 export type Atom = {
+  // Contract Label's group, kept with the label as ChemDraw keeps a contracted fragment: its atoms and bonds as drawn,
+  // the labelled atom first. Expand Label draws it out again when the label is no abbreviation Octet knows.
+  inner?: Mol;
   label: string; location: [number, number, number]; charge?: number; implicitHCount?: number; text?: string;
   radical?: number; // 1 a doublet (one unpaired electron), 2 a triplet (two), 3 a singlet (a paired carbene)
   isotope?: number; // mass number, written before the element (13C, 2H)

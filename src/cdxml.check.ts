@@ -8,7 +8,7 @@ import { DAMAGED, NOT_CDXML, TOO_BIG, arialGlyph, fmt, fmtAngle, fmtColour, fmtS
 import { cdxToXml, xmlToCdx } from "./cdx.ts";
 import { DEFAULT_STYLE, PRESETS, readStyle, withScale, type DocStyle } from "./docstyle.ts";
 import { parse, serialize } from "./file.ts";
-import { fitSizes, insertMol } from "./edit.ts";
+import { contractLabel, expandLabel, fitSizes, insertMol, setLabel } from "./edit.ts";
 import { HIGHLIGHT, bendPoint, ellipseArrow, fitArrows, headOfLength, headsOf, placeCaptions, placedAt, render, takesHeads, tlcLayout, type Arrow, type Atom, type Bond, type Caption, type Ink, type Mol, type Shape } from "./render.ts";
 import { layoutCycles } from "./cycle.ts";
 import { analyse, fromJcamp, measuredText, type Measured } from "./measured.ts";
@@ -1128,4 +1128,20 @@ No</s><s font="3" size="10" color="4" face="3"> ISC</s></t></n></fragment><fragm
     console.log(`cdxml.check: ${justified} corpus labels of more than one glyph keep ChemDraw's justification`);
     console.log(`cdxml.check: ${all.length} right-justified corpus labels; Octet's p less ChemDraw's (pt): ${[...off].map(([t, v]) => `${t} ${range(v)}`).join(", ")}`);
   }
+}
+
+// Tobias, 2 November 2026: contract a group, give it a label of your own, expand it again. The group stays with the
+// label (inner), through a CDXML file too, and Expand Label draws it out.
+{
+  const A = (label: string, x: number, y = 0): Atom => ({ label, location: [x, y, 0] });
+  // A propyl ester on a ring carbon: C0-C1(=O2)-O3-C4-C5-C6.
+  const m: Mol = { atoms: [A("C", 0), A("C", 1), A("O", 1.5, 0.87), A("O", 1.5, -0.87), A("C", 2.5, -0.87), A("C", 3, 0), A("C", 4, 0)],
+    bonds: [[0, 1, 1], [1, 2, 2], [1, 3, 1], [3, 4, 1], [4, 5, 1], [5, 6, 1]].map(([a, b, t]) => ({ atoms: [a, b] as [number, number], type: t })) };
+  const contracted = setLabel(contractLabel(m, 1, new Set([1, 2, 3, 4, 5, 6]), "C4H7O2"), 1, "Est");
+  assert.deepEqual([contracted.atoms.length, contracted.atoms[1].text, contracted.atoms[1].inner?.atoms.length, contracted.atoms[1].inner?.bonds.length], [2, "Est", 6, 5]);
+  const out = expandLabel(contracted, 1, contracted.atoms[1].inner!);
+  assert.deepEqual([out.atoms.length, out.bonds.length, out.atoms[1].text, out.atoms[1].inner], [7, 6, undefined, undefined]);
+  const read = fromCdxml(toCdxml(contracted, DEFAULT_STYLE, { name: "contract.cdxml" })).mol, label = read.atoms.find((a) => a.text === "Est");
+  assert.deepEqual([label?.inner?.atoms.length, label?.inner?.bonds.length, label?.inner?.atoms[0].label], [6, 5, "C"], "the group goes through CDXML");
+  assert.equal(setLabel(contracted, 1, "Br").atoms[1].inner, undefined, "an element label leaves the group");
 }

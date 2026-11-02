@@ -2109,9 +2109,10 @@ export default function Editor() {
       const labelled = [...selection].filter((i) => doc.atoms[i]?.text && doc.atoms[i].chemical !== false).sort((a, b) => b - a);
       if (!labelled.length) return setNotice("Select a labelled atom, such as OMe or Boc.", "info");
       for (const i of labelled) {
-        const smiles = labelSmiles(doc.atoms[i].text!);
-        if (!smiles) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
-        try { m = expandLabel(m, i, parseStructure(smiles)); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
+        // An abbreviation Octet knows, else the group Contract Label kept with the label (or a ChemDraw file's).
+        const smiles = labelSmiles(doc.atoms[i].text!), inner = doc.atoms[i].inner;
+        if (!smiles && !inner?.atoms.length) { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); continue; }
+        try { m = expandLabel(m, i, smiles ? parseStructure(smiles) : inner!); } catch { setNotice(`Octet cannot draw out ${doc.atoms[i].text}.`); }
       }
       set(m);
     },
@@ -6459,9 +6460,12 @@ export default function Editor() {
       e.preventDefault();
       stopCamera();
       const zooming = e.ctrlKey || e.metaKey;
+      // Deltas in lines or pages (Firefox, some Linux mice) as pixels. A mouse wheel's notch is 100 px on Windows: each
+      // zoom step is at most 1.25 times, as Magnify's, so Ctrl and the wheel zoom in steps (a pinch's steps are smaller).
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1, dx = e.deltaX * unit, dy = e.deltaY * unit;
       setView((v) => {
-        if (!zooming) return { ...v, x: v.x - e.deltaX, y: v.y - e.deltaY };
-        const zoom = clampZoom(v.zoom * Math.exp(-e.deltaY * 0.01)), k = zoom / v.zoom;
+        if (!zooming) return { ...v, x: v.x - dx, y: v.y - dy };
+        const zoom = clampZoom(v.zoom * Math.exp(-Math.max(-Math.log(1.25), Math.min(Math.log(1.25), dy * 0.01)))), k = zoom / v.zoom;
         return { zoom, x: e.clientX - (e.clientX - v.x) * k, y: e.clientY - (e.clientY - v.y) * k, pinch: true };
       });
       if (!zooming) return;
