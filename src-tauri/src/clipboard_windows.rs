@@ -4,11 +4,12 @@
 use std::ptr::{copy_nonoverlapping, null_mut};
 
 use windows_sys::Win32::Foundation::GlobalFree;
+use windows_sys::Win32::Graphics::Gdi::{DeleteEnhMetaFile, GetEnhMetaFileBits, SetEnhMetaFileBits};
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard, RegisterClipboardFormatW, SetClipboardData};
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
-use windows_sys::Win32::System::Ole::{CF_DIB, CF_UNICODETEXT};
+use windows_sys::Win32::System::Ole::{CF_DIB, CF_ENHMETAFILE, CF_UNICODETEXT};
 
-use super::{DIB, MAX_TYPE, UNICODE_TEXT};
+use super::{DIB, ENHMETAFILE, MAX_TYPE, UNICODE_TEXT};
 
 // A format's number: CF_DIB for the bitmap and CF_UNICODETEXT for text, else the name registered (the same number in
 // every app). 0 if Windows refuses the name.
@@ -16,6 +17,7 @@ fn format(name: &str) -> u32 {
     match name {
         DIB => return u32::from(CF_DIB),
         UNICODE_TEXT => return u32::from(CF_UNICODETEXT),
+        ENHMETAFILE => return u32::from(CF_ENHMETAFILE),
         _ => {}
     }
     let wide: Vec<u16> = name.encode_utf16().chain([0]).collect();
@@ -59,6 +61,21 @@ pub fn write(types: &[(&str, Vec<u8>)]) -> Result<(), String> {
         return Err(fail());
     }
     for ((_, bytes), f) in types.iter().zip(formats) {
+        // A metafile goes on as a metafile handle, made from its bytes; the clipboard owns it after SetClipboardData.
+        if f == u32::from(CF_ENHMETAFILE) {
+            // SAFETY: `bytes` lives for the call and GDI copies it; the handle is deleted here if the clipboard refuses it.
+            unsafe {
+                let h = SetEnhMetaFileBits(bytes.len() as u32, bytes.as_ptr());
+                if h.is_null() {
+                    return Err(fail());
+                }
+                if SetClipboardData(f, h).is_null() {
+                    DeleteEnhMetaFile(h);
+                    return Err(fail());
+                }
+            }
+            continue;
+        }
         // SAFETY: the memory is allocated with the size of `bytes`, written while locked, and given to the clipboard,
         // which owns it after SetClipboardData succeeds. If that fails, it is freed here.
         unsafe {
@@ -98,6 +115,15 @@ fn one(f: u32) -> Option<Vec<u8>> {
         let h = GetClipboardData(f);
         if h.is_null() {
             return None;
+        }
+        // A metafile handle: its bytes come from GDI, at most 64 MB.
+        if f == u32::from(CF_ENHMETAFILE) {
+            let n = GetEnhMetaFileBits(h, 0, std::ptr::null_mut()) as usize;
+            if n == 0 || n > MAX_TYPE {
+                return None;
+            }
+            let mut out = vec![0u8; n];
+            return (GetEnhMetaFileBits(h, n as u32, out.as_mut_ptr()) as usize == n).then_some(out);
         }
         let n = GlobalSize(h);
         if n == 0 || n > MAX_TYPE {

@@ -6,7 +6,9 @@
 // and Word pastes text before a picture.
 // - macOS: the picture is a vector PDF with the CDXML in its catalog /Metadata (Office keeps it; ChemDraw and Octet
 //   read the structure back out of it). The types are ChemDraw's (notes/clipboard-blackbox.md).
-// - Windows (REL-3, CH-1): Office for Windows pastes no PDF, so the picture is a PNG and a bitmap. The other formats
+// - Windows (REL-3, CH-1): Office for Windows pastes no PDF, so the picture is an EMF (vector, as ChemDraw for Windows
+//   puts a metafile), with the CDXML in a comment, and a bitmap for programs that read no metafile. No PNG: Office
+//   would take it before the EMF and paste pixels. The other formats
 //   have the names ChemDraw's own clipboard code uses there: "ChemDraw Interchange Format" (CDX), "CDXML", "MDLCT" (a
 //   molfile as length-prefixed lines) and "SMILES".
 // - Linux: the picture is a PNG and an SVG, and the chemistry has its MIME types (chemical/x-cdx and so on).
@@ -33,6 +35,7 @@ pub const FILE_URL: &str = "public.file-url";
 // The Windows bitmap and text are standard formats (CF_DIB, CF_UNICODETEXT), not registered names.
 pub const DIB: &str = "CF_DIB";
 pub const UNICODE_TEXT: &str = "CF_UNICODETEXT";
+pub const ENHMETAFILE: &str = "CF_ENHMETAFILE";
 
 const MAX_TYPE: usize = 64 << 20;
 const MAX_TEXT: usize = 64 << 10;
@@ -49,6 +52,7 @@ pub const HERE: System = if cfg!(target_os = "macos") { System::Mac } else if cf
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Kind {
     Pdf,
+    Emf,
     Png,
     Bitmap,
     Svg,
@@ -78,9 +82,10 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Png => &["public.png"],
             Bitmap => &["public.tiff"],
             FileUrl => &[FILE_URL],
-            Svg => &[],
+            Svg | Emf => &[],
         },
         System::Windows => match k {
+            Emf => &[ENHMETAFILE],
             Png => &["PNG"],
             Bitmap => &[DIB],
             Cdx => &["ChemDraw Interchange Format"],
@@ -101,7 +106,7 @@ fn names(s: System, k: Kind) -> &'static [&'static str] {
             Octet => &["application/x-octet+json"],
             Text => &["text/plain;charset=utf-8", "UTF8_STRING", "text/plain"],
             FileUrl => &["text/uri-list"],
-            Pdf | Bitmap => &[],
+            Pdf | Bitmap | Emf => &[],
         },
     }
 }
@@ -191,8 +196,14 @@ fn types(s: System, svg: Option<&str>, cdxml: Option<&str>, cdxml_type: bool, cd
     if let Some(svg) = svg {
         if s == System::Mac {
             put(Kind::Pdf, crate::export::make_pdf(svg, cdxml)?);
+        } else if s == System::Windows {
+            let tree = crate::export::tree(svg)?;
+            put(Kind::Emf, crate::vector::make_emf(&tree, cdxml));
+            if let (_, Some(b)) = crate::export::clipboard_pixels(&tree, true)? {
+                put(Kind::Bitmap, b);
+            }
         } else {
-            let (png, bitmap) = crate::export::clipboard_pictures(svg, s == System::Windows)?;
+            let (png, bitmap) = crate::export::clipboard_pictures(svg, false)?;
             put(Kind::Png, png);
             if let Some(b) = bitmap {
                 put(Kind::Bitmap, b);
@@ -257,7 +268,7 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
     // The PDF's CDXML when there is no Octet JSON or CDXML type: it holds the whole drawing, arrows, text and shapes
     // too (REL-4, CH-2). ChemDraw's CDX is the page's next choice, for a copy with no PDF.
     if c.octet.is_none() && c.cdxml.is_none() {
-        c.cdxml = first(s, Kind::Pdf, &read).and_then(|b| crate::export::cdxml_from_pdf(&b));
+        c.cdxml = first(s, Kind::Pdf, &read).and_then(|b| crate::export::cdxml_from_pdf(&b)).or_else(|| first(s, Kind::Emf, &read).and_then(|b| crate::vector::cdxml_from_emf(&b)));
     }
     c
 }
@@ -266,7 +277,7 @@ fn clip(s: System, read: impl Fn(&str) -> Option<Vec<u8>>) -> Clip {
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 fn readable(s: System) -> Vec<&'static str> {
     use Kind::*;
-    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf, Text, Png, Bitmap, FileUrl].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
+    [Octet, Cdxml, Cdx, Molfile, Smiles, Pdf, Emf, Text, Png, Bitmap, FileUrl].iter().flat_map(|k| names(s, *k).iter().copied()).collect()
 }
 
 // A Windows bitmap (CF_DIB: its header, colours and pixels) as a .bmp file, which the page's decoder reads: the
@@ -475,16 +486,19 @@ mod tests {
         assert!(c.cdxml.unwrap().contains("<CDXML") && c.cdx.is_some() && c.molfile.is_some() && c.smiles.is_some());
     }
 
-    // REL-3, CH-1: Windows and Linux copy the same things as the Mac, under their own names, with a PNG for the picture
-    // (and a bitmap on Windows, an SVG on Linux). Paste reads them back.
+    // REL-3, CH-1: Windows and Linux copy the same things as the Mac, under their own names: on Windows a vector EMF and
+    // a bitmap for the picture, on Linux a PNG and an SVG. Paste reads them back.
     #[test]
     fn windows_and_linux_copy_the_same() {
         let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="20pt" height="10pt" viewBox="0 0 20 10"><path d="M1 1H19V2H1Z"/></svg>"#;
         let cdx = b"VjCD0100\x04\x03\x02\x01".to_vec();
         let all = |s| types(s, Some(svg), Some("<CDXML/>"), true, Some(cdx.clone()), Some(MOL), Some("CO"), Some("{}".into())).unwrap();
         let t = all(System::Windows);
-        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), ["PNG", DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
-        assert!(t[0].1.starts_with(b"\x89PNG\r\n\x1a\n"));
+        assert_eq!(t.iter().map(|(t, _)| *t).collect::<Vec<_>>(), [ENHMETAFILE, DIB, "ChemDraw Interchange Format", "CDXML", "MDLCT", "SMILES", "application/x-octet+json"]);
+        assert_eq!(&t[0].1[40..44], b" EMF");
+        // A picture copied back out of Word keeps its EMF: with nothing else, paste reads the drawing from it.
+        let c = clip(System::Windows, |n| (n == ENHMETAFILE).then(|| t[0].1.clone()));
+        assert_eq!(c.cdxml.as_deref(), Some("<CDXML/>"));
         // 20 pt by 10 pt at 600 dpi: 167 by 84 pixels, as a bottom-up 24-bit bitmap on white with rows of 504 bytes.
         let dib = &t[1].1;
         let int = |k: usize| i32::from_le_bytes(dib[k..k + 4].try_into().unwrap());

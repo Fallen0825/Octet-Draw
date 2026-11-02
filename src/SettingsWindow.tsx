@@ -12,7 +12,7 @@ import { FontPick } from "./Actions";
 import { listOpen } from "./Menu";
 import { NumberField, Segmented, Switch } from "./Fields";
 import { RULER_UNITS, type RulerUnit, type Swatch } from "./settings";
-import { EXPORT_FORMATS, type ExportFormat } from "./export";
+import { EXPORT_FORMATS, PICTURES, type ExportFormat } from "./export";
 import { BACKGROUNDS, COLOURS, ELEMENT_COLOURS, FONTS, GRID_IN, GRID_MM, PAGE_NAMES, PAGES, PRESETS, PURPOSES, pageSize, pickPage, presetAt, presetOf, withScale, type DocStyle, type PageName } from "./docstyle";
 import { ACTIONS, clashes, keyOf, keymap, label as keyLabel, type Keymap } from "./keys";
 import { WARNING_TYPES, type WarningType } from "./check";
@@ -28,14 +28,15 @@ export type FilePrefs = {
   format: ExportFormat; dpi: number; background: "white" | "transparent"; margin: number;
   clipboard: { pdf: boolean; cdx: boolean; cdxml: boolean; mol: boolean; smiles: boolean }; keepStyle: boolean;
   saveAs: "oct" | "cdxml" | "cdx"; // the format Save offers first for a new drawing (ChemDraw's Use Default File Format)
+  quick: ExportFormat; // Quick export's picture format: PNG, or SVG for Office, PDF for LaTeX, and the others
 };
 const MAC = navigator.platform.startsWith("Mac");
 // The picture Copy puts on the clipboard (Settings > Import and export > Copy).
-const PICTURE = MAC ? "PDF, with the structure inside" : navigator.platform.startsWith("Linux") ? "PNG and SVG" : "PNG";
+const PICTURE = MAC ? "PDF, with the structure inside" : navigator.platform.startsWith("Linux") ? "PNG and SVG" : "EMF, with the structure inside";
 // PNG resolutions; 350 dpi by default (Sam: super high resolution).
 export const DPIS: [string, string][] = [["72", "72 dpi"], ["150", "150 dpi"], ["300", "300 dpi"], ["350", "350 dpi"], ["600", "600 dpi"], ["1200", "1200 dpi"], ["1440", "1440 dpi"]];
 // 600 dpi by default (Sam, 21 October 2026: PNGs at 350 dpi looked soft on slides); 1440 is ChemDraw's highest.
-export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, clipboard: { pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct" };
+export const DEFAULT_FILES: FilePrefs = { format: "pdf", dpi: 600, background: "transparent", margin: 4, clipboard: { pdf: true, cdx: true, cdxml: true, mol: true, smiles: true }, keepStyle: true, saveAs: "oct", quick: "png" };
 
 type Props = {
   module: ModuleId;
@@ -81,6 +82,7 @@ type Props = {
   warningTypes: Partial<Record<WarningType, boolean>>;
   onWarningTypes: (types: Partial<Record<WarningType, boolean>>) => void;
   checkCopy: boolean;
+  windows: boolean; onWindows: (on: boolean) => void;
   onCheckCopy: (on: boolean) => void;
   adding?: boolean; // opened to add a colour: a new one is made, ready to set
   updates: boolean; // check for updates when Octet opens (decision 0010)
@@ -526,6 +528,7 @@ export function SettingsWindow(p: Props) {
         </>
       ), true)),
       d("files", "Export", "Format", "export format pdf svg png emf eps tiff tif jpeg jpg gif metafile postscript cdxml cdx mol sdf rxn rdf v2000 v3000 smiles inchi file save", <Select label="Export format" value={files.format} options={EXPORT_FORMATS} onChange={(v) => setFiles({ format: v as FilePrefs["format"] })} />),
+      d("files", "Export", "Quick export", "quick export format png svg pdf emf eps tiff jpeg gif latex office one click", <Select label="Quick export" value={files.quick} options={EXPORT_FORMATS.filter(([f]) => PICTURES.includes(f))} onChange={(v) => setFiles({ quick: v as FilePrefs["quick"] })} />),
       d("files", "Export", "Resolution", "png tiff jpeg gif image resolution dpi scale", <Select label="Resolution" value={String(files.dpi)} options={DPIS} onChange={(v) => setFiles({ dpi: Number(v) })} />),
       d("files", "Export", "Background", "background transparent white png svg", <Select label="Background" value={files.background} options={[["transparent", "Transparent"], ["white", "White"]]} onChange={(v) => setFiles({ background: v as FilePrefs["background"] })} />),
       d("files", "Export", "Margin", "export margin padding border", <NumberField label="Margin" unit="pt" min={0} max={72} step={1} value={files.margin} onChange={(n) => setFiles({ margin: n })} />),
@@ -533,6 +536,7 @@ export function SettingsWindow(p: Props) {
       // the Mac, a PNG on Windows, and a PNG and an SVG on Linux (src-tauri/src/clipboard.rs).
       ...([["pdf", PICTURE, "picture image pdf png svg word powerpoint keynote office"], ["cdx", "CDX", "cdx chemdraw binary"], ["cdxml", "CDXML", "cdxml chemdraw"], ["mol", "MOL", "mol molfile"], ["smiles", "SMILES", "smiles text"]] as const).map(([k, name, words]) =>
         d("files", "Copy", name, `clipboard copy paste ${words}`, <Switch on={files.clipboard[k]} label={name} onChange={(on) => setFiles({ clipboard: { ...files.clipboard, [k]: on } })} />)),
+      d("general", "Windows", "Open each drawing in a new window", "windows multiple multi window tabs home new open drawing each own single", <Switch on={p.windows} label="Open each drawing in a new window" onChange={p.onWindows} />),
       d("general", "Updates", "Check automatically", "updates update check automatically new version internet", <Switch on={p.updates} label="Check for updates automatically" onChange={p.onUpdates} />),
       d("appearance", "Colours", "Octet's colours", "colour colours palette swatch built in", (
         <span className="swatches" role="list" aria-label="Octet's colours">
@@ -563,7 +567,7 @@ export function SettingsWindow(p: Props) {
       // ChemDraw's Add Structure to Dictionary keeps names; here they are renamed, removed, exported and imported.
       d("dictionary", "Names", "Your names", "dictionary names name to structure own words abbreviations rename remove export import smiles", <OwnDictionary list={p.dictionary} onRename={p.onRenameName} onRemove={p.onRemoveName} />, true),
     ];
-  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [style, map, recording, note, files, p.palette, p.elementColours, p.adding, p.panelMenus, p.captionOptionReturn, p.labelReturnNewLine, p.onlineSearch, p.rulerUnit, p.menuKeys.length, p.purposes, p.ownTemplates, p.drawing, p.template, p.updates, p.warnings, p.warningTypes, p.checkCopy, p.windows, p.dictionary]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const found = query.trim() ? defs.filter((def) => matches(def, query) && (!p.template || def.module === "document")) : [];
   const counts = new Map(MODULES.map((m) => [m.id, found.filter((f) => f.module === m.id).length]));

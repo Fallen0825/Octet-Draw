@@ -283,8 +283,13 @@ fn picture_record(e: &mut Emf, p: &Picture, device: (f32, f32)) {
     e.record(36, &back);
 }
 
+// The comment Octet's EMF on the Windows clipboard carries: this tag, then the drawing's CDXML, so a picture copied
+// back out of Word or PowerPoint pastes into Octet as the drawing (as the CDXML in the Mac's PDF does).
+const CDXML_TAG: &[u8] = b"Octet CDXML\0";
+
 // An EMF of the SVG at true size: its frame (which Word, PowerPoint and Keynote place it by) is the picture's size.
-pub fn make_emf(tree: &usvg::Tree) -> Vec<u8> {
+// With `cdxml`, the drawing goes in an EMR_COMMENT after the header, which GDI and Office skip when they draw.
+pub fn make_emf(tree: &usvg::Tree, cdxml: Option<&str>) -> Vec<u8> {
     let (w, h) = size(tree);
     let (lw, lh) = ((w * UNIT).ceil().max(1.0) as i32, (h * UNIT).ceil().max(1.0) as i32);
     // The picture in device px, and in hundredths of a mm.
@@ -295,6 +300,10 @@ pub fn make_emf(tree: &usvg::Tree) -> Vec<u8> {
     // EMR_HEADER (filled in at the end with the totals): bounds, frame, " EMF", version, bytes, records, handles,
     // reserved, description, palette, device, millimetres, pixel format, OpenGL, micrometres.
     e.record(1, &[0, 0, dw - 1, dh - 1, 0, 0, fw, fh, 0x464D_4520, 0x10000, 0, 0, 3, 0, 0, 0, DEVICE.0, DEVICE.1, DEVICE_MM.0, DEVICE_MM.1, 0, 0, 0, DEVICE_MM.0 * 1000, DEVICE_MM.1 * 1000]);
+    if let Some(x) = cdxml {
+        let data = [CDXML_TAG, x.as_bytes()].concat();
+        e.record_with(70, &[data.len() as i32], &data); // EMR_COMMENT: the data's size, then the data
+    }
     e.record(17, &[8]); // EMR_SETMAPMODE MM_ANISOTROPIC
     e.record(9, &[lw, lh]); // EMR_SETWINDOWEXTEX
     e.record(10, &[0, 0]); // EMR_SETWINDOWORGEX
@@ -363,6 +372,31 @@ pub fn make_emf(tree: &usvg::Tree) -> Vec<u8> {
     e.out
 }
 
+// The CDXML in an EMF's Octet comment, if it has one. The records are walked with bounds checks (the bytes come from
+// the clipboard and are hostile): each must fit in the file, and at most 100,000 are read.
+pub fn cdxml_from_emf(emf: &[u8]) -> Option<String> {
+    let u32_at = |k: usize| emf.get(k..k + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
+    let mut at = 0;
+    for _ in 0..100_000 {
+        let (kind, size) = (u32_at(at)?, u32_at(at + 4)?);
+        if size < 8 || size % 4 != 0 || at.checked_add(size)? > emf.len() {
+            return None;
+        }
+        if kind == 70 {
+            let n = u32_at(at + 8)?;
+            let data = emf.get(at + 12..(at + 12).checked_add(n)?.min(at + size))?;
+            if let Some(x) = data.strip_prefix(CDXML_TAG) {
+                return std::str::from_utf8(x).ok().filter(|t| t.contains("<CDXML")).map(str::to_string);
+            }
+        }
+        if kind == 14 {
+            return None; // EMR_EOF
+        }
+        at += size;
+    }
+    None
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -385,7 +419,13 @@ pub(crate) mod tests {
 
     #[test]
     fn emf_header_and_records_add_up() {
-        let emf = make_emf(&tree(SVG));
+        let emf = make_emf(&tree(SVG), None);
+        assert_eq!(cdxml_from_emf(&emf), None);
+        let cdxml = "<?xml version=\"1.0\"?><CDXML><page/></CDXML>";
+        let with = make_emf(&tree(SVG), Some(cdxml));
+        assert_eq!(cdxml_from_emf(&with).as_deref(), Some(cdxml));
+        assert_eq!(cdxml_from_emf(&with[..with.len() / 2]), Some(cdxml.to_string()), "the comment comes first");
+        assert_eq!(cdxml_from_emf(&[70, 0, 0, 0, 255, 255, 255, 255]), None, "a record larger than the file");
         let u = |at: usize| u32::from_le_bytes(emf[at..at + 4].try_into().unwrap());
         assert_eq!(u(0), 1);
         assert_eq!(u(40), 0x464D_4520);
@@ -426,7 +466,7 @@ pub(crate) mod tests {
         assert!(eps.contains("/Width 4 /Height 2 /BitsPerComponent 8"));
         assert!(eps.contains(&format!("image\n{}\n>\ngrestore\n", "FF0000".repeat(8))), "{eps}");
         // EMF: the world transform takes the pixels there in 1/20 pt; StretchDIBits draws 4 by 2, bottom row first, BGR.
-        let emf = make_emf(&tree(&svg));
+        let emf = make_emf(&tree(&svg), None);
         let u = |at: usize| u32::from_le_bytes(emf[at..at + 4].try_into().unwrap());
         let f = |at: usize| f32::from_bits(u(at));
         let (mut at, mut seen) = (0, Vec::new());

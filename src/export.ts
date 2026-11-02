@@ -98,6 +98,8 @@ export type ExportFormat = "oct" | "pdf" | "svg" | "png" | "emf" | "eps" | "tif"
 // The pictures: vector (PDF, SVG, EMF, EPS) and pixels at a resolution (PNG, TIFF, JPEG, GIF; JPEG is always on white).
 export const PICTURES: ExportFormat[] = ["pdf", "png", "svg", "emf", "eps", "tif", "jpg", "gif"];
 export const RASTERS: ExportFormat[] = ["png", "tif", "jpg", "gif"];
+// A picture format's short name, as Quick export's menu item says it.
+export const shortName = (f: ExportFormat) => (f === "tif" ? "TIFF" : f === "jpg" ? "JPEG" : f.toUpperCase());
 // The MDL formats, each V3000 (as ChemDraw 26.1 saves them) and V2000, as ChemDraw lists them.
 export const MDL: ExportFormat[] = ["mol", "mol2000", "sdf", "sdf2000", "rxn", "rxn2000", "rdf", "rdf2000"];
 // Every format, with its name in Export and Settings.

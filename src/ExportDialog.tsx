@@ -1,5 +1,6 @@
-// Export: a button that stays at the top right of the window. It opens a menu with Quick export as PNG (straight to
-// the Save dialog, with the saved PNG settings) and Export…, which shows the settings first: what to export, the
+// Export: a button that stays at the top right of the window. It opens a menu with Quick export (straight to the Save
+// dialog, in the format Settings > Import and export > Quick export picks, PNG at first, with the saved settings) and
+// Export…, which shows the settings first: what to export, the
 // format, a PNG's resolution and background, the margin, and a preview with the size it will come out at.
 import { useEffect, useRef, useState } from "react";
 import { DownloadSimple, Export as ExportIcon, ImageSquare } from "@phosphor-icons/react";
@@ -8,11 +9,11 @@ import { Menu } from "./Menu";
 import { Exit } from "./motion";
 import { Select } from "./Select";
 import { NumberField, Segmented } from "./Fields";
-import { EXPORT_FORMATS as FORMATS, PICTURES, RASTERS, withMargin } from "./export";
+import { EXPORT_FORMATS as FORMATS, PICTURES, RASTERS, shortName, withMargin } from "./export";
 import type { ExportFormat } from "./export";
 import { DPIS, type FilePrefs } from "./SettingsWindow";
 
-export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void; onExport: () => void; hint?: string }) {
+export function ExportButton({ quick, onQuick, onExport, hint }: { quick: ExportFormat; onQuick: () => void; onExport: () => void; hint?: string }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -31,7 +32,7 @@ export function ExportButton({ onQuick, onExport, hint }: { onQuick: () => void;
       </button>
       <Exit>{open && (
         <Menu label="Export" className="export-menu" columns={1}
-          groups={[[{ key: "quick", name: "Quick export as PNG", icon: <ImageSquare size={18} /> }, { key: "export", name: "Export…", icon: <DownloadSimple size={18} /> }]]}
+          groups={[[{ key: "quick", name: `Quick export as ${shortName(quick)}`, icon: <ImageSquare size={18} /> }, { key: "export", name: "Export…", icon: <DownloadSimple size={18} /> }]]}
           onChoose={(key) => { setOpen(false); if (key === "quick") onQuick(); else onExport(); }} />
       )}</Exit>
     </div>

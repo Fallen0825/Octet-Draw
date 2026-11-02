@@ -174,10 +174,13 @@ fn png_of(pixmap: &resvg::tiny_skia::Pixmap, dpi: f32) -> Result<Vec<u8>, String
 // true size (lower for a large drawing, so it has at most 16 million pixels and 8,192 on a side), and with `bitmap`
 // the same on white as a Windows bitmap (a DIB), for programs that read no PNG.
 pub fn clipboard_pictures(svg: &str, bitmap: bool) -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
-    let tree = tree(svg)?;
+    clipboard_pixels(&tree(svg)?, bitmap)
+}
+
+pub fn clipboard_pixels(tree: &usvg::Tree, bitmap: bool) -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
     let (w, h) = (tree.size().width().max(1.0), tree.size().height().max(1.0));
     let dpi = 600f32.min(96.0 * (16e6 / (w * h)).sqrt()).min(96.0 * 8192.0 / w.max(h));
-    let pixmap = draw(&tree, dpi, true)?;
+    let pixmap = draw(tree, dpi, true)?;
     Ok((png_of(&pixmap, dpi)?, bitmap.then(|| dib(&pixmap, dpi))))
 }
 
@@ -423,7 +426,7 @@ pub async fn export_file(app: AppHandle, exported: State<'_, Exported>, export: 
         "tif" => make_tiff(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
         "jpg" => make_jpeg(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0))?,
         "gif" => make_gif(e.svg.as_deref().unwrap_or_default(), e.dpi.unwrap_or(300.0), e.transparent.unwrap_or(false))?,
-        "emf" => crate::vector::make_emf(&tree(e.svg.as_deref().unwrap_or_default())?),
+        "emf" => crate::vector::make_emf(&tree(e.svg.as_deref().unwrap_or_default())?, None),
         "eps" => crate::vector::make_eps(&tree(e.svg.as_deref().unwrap_or_default())?),
         "oct" => text(&e.oct),
         "cdxml" => text(&e.cdxml),
@@ -853,7 +856,7 @@ mod tests {
         assert_eq!(pixels, 172 * 130);
         if let Ok(dir) = std::env::var("OCTET_EXPORT_SAMPLES") {
             for (name, bytes) in [("sample.tif", tiff), ("sample.jpg", jpeg), ("sample.gif", gif), ("sample-white.tif", make_tiff(SVG, 144.0, false).unwrap()),
-                ("sample.eps", crate::vector::make_eps(&tree(SVG).unwrap())), ("sample.emf", crate::vector::make_emf(&tree(SVG).unwrap()))] {
+                ("sample.eps", crate::vector::make_eps(&tree(SVG).unwrap())), ("sample.emf", crate::vector::make_emf(&tree(SVG).unwrap(), None))] {
                 std::fs::write(std::path::Path::new(&dir).join(name), bytes).unwrap();
             }
         }
@@ -981,7 +984,7 @@ mod tests {
             let k = ((info.height / 2) * info.width + info.width / 2) as usize * 4;
             assert!(buf[k] > 200 && buf[k + 1] < 60 && buf[k + 3] > 200, "{mime}: {:?}", &buf[k..k + 4]);
             assert!(String::from_utf8(crate::vector::make_eps(&tree(&svg).unwrap())).unwrap().contains(" image\n"), "{mime}");
-            assert!(find(&crate::vector::make_emf(&tree(&svg).unwrap()), &[81, 0, 0, 0]).is_some(), "{mime}");
+            assert!(find(&crate::vector::make_emf(&tree(&svg).unwrap(), None), &[81, 0, 0, 0]).is_some(), "{mime}");
         }
     }
 

@@ -1019,7 +1019,9 @@ export default function Editor() {
   // the window holds an untouched new drawing (as a Mac app reuses its empty Untitled document). The open windows,
   // for Home's list, and to bring a drawing that is open already to the front.
   const [openWindows, setOpenWindows] = useState<OpenWindow[]>([]);
-  const elsewhere = HOME_WINDOW || (DRAW_WINDOW && (!!file.path || file.name !== undefined || dirty || !!templateEdit || !!extent(doc)));
+  // Settings > General > Windows off: one window, with Home over the drawing, as Octet had before.
+  const homeWindow = HOME_WINDOW && settings.windows, drawWindow = DRAW_WINDOW && settings.windows;
+  const elsewhere = homeWindow || (drawWindow && (!!file.path || file.name !== undefined || dirty || !!templateEdit || !!extent(doc)));
   const inNew = (start: Start) => void invoke("open_window", { start }).catch((e) => setNotice(failure("Octet cannot open a new window.", e)));
   const openIn = (path: string | null | undefined) => {
     const there = path ? openWindows.find((w) => w.path === path) : undefined;
@@ -1234,12 +1236,13 @@ export default function Editor() {
       setNotice(failure("Octet cannot export this drawing.", e));
     }
   }
-  // Quick export as PNG: the selection, or the whole drawing, straight to the Save dialog with the saved PNG settings.
+  // Quick export: the selection, or the whole drawing, straight to the Save dialog in the Quick export format (PNG
+  // at first; SVG or EMF for Office, PDF for LaTeX), with the saved settings. A PDF carries the CDXML, as Export's does.
   async function quickExport() {
-    const svg = pictureOf(selectedPart() ?? doc), f = filePrefs;
+    const part = selectedPart() ?? doc, svg = pictureOf(part), f = filePrefs, format = filePrefs.quick;
     if (!svg) return setNotice("There is nothing to export.", "info");
     try {
-      const path = await exportFile({ name, format: "png", svg: withMargin(svg, f.margin), dpi: f.dpi, transparent: f.background === "transparent" });
+      const path = await exportFile({ name, format, svg: withMargin(svg, f.margin), cdxml: format === "pdf" ? formatOf(part, "cdxml") : undefined, dpi: f.dpi, transparent: f.background === "transparent" });
       if (path) saved(path);
     } catch (e) {
       setNotice(failure("Octet cannot export this drawing.", e));
@@ -1456,7 +1459,7 @@ export default function Editor() {
       const picked = await invoke<[string, string] | null>("open_drawing");
       if (!picked) return;
       if (isTemplateFile(picked[0])) return openTemplateFile(picked[0].split(/[\\/]/).pop() ?? "Templates.ctp", picked[1]);
-      if (isSpectrum(picked[1]) && !HOME_WINDOW) return openSpectrumText(picked[1], picked[0].split(/[\\/]/).pop() ?? "this file");
+      if (isSpectrum(picked[1]) && !homeWindow) return openSpectrumText(picked[1], picked[0].split(/[\\/]/).pop() ?? "this file");
       if (openIn(picked[0])) return;
       if (elsewhere) return inNew({ picked });
       openPicked(picked);
@@ -1496,8 +1499,8 @@ export default function Editor() {
     for (const f of all) if (f.text !== null && !f.error && isTemplateFile(f.name)) openTemplateFile(f.name, f.text);
     const files = all.filter((f) => !isTemplateFile(f.name) || f.error);
     // Spectra (on the canvas or the Spectrum panel, or opened) go into the drawing; on Home, each opens in a new window.
-    if (!HOME_WINDOW) for (const f of files) if (f.text !== null && isSpectrum(f.text)) openSpectrumText(f.text, f.name);
-    const read = files.filter((f) => f.picture !== null || (f.text !== null && (HOME_WINDOW || !isSpectrum(f.text))));
+    if (!homeWindow) for (const f of files) if (f.text !== null && isSpectrum(f.text)) openSpectrumText(f.text, f.name);
+    const read = files.filter((f) => f.picture !== null || (f.text !== null && (homeWindow || !isSpectrum(f.text))));
     for (const f of files) if (f.error) setNotice(f.error);
     if (read.some((f) => f.text !== null && !isDrawingText(f.text))) await ready;
     const dropped = read.filter((f) => f.at && insert), opening = read.filter((f) => !(f.at && insert)), first = opening[0];
@@ -1781,8 +1784,12 @@ export default function Editor() {
     place(withOwnCaption(found.name, found.frag), base, at);
     if (structureFor(found.name)) rememberName(found.name, found.frag);
   }
-  // The name field, with the text given; with none, the clipboard's text if Octet reads it as a structure.
+  // The name field, with the text given; with none, the clipboard's text if Octet reads it as a structure. The
+  // structure lands where the pointer was on the canvas when the field opened (Sam, 2 November 2026); with the pointer
+  // off the canvas, after the drawing as before.
+  const namingAt = useRef<P>(undefined);
   function openNaming(text?: string) {
+    namingAt.current = pointer.current;
     void loadNames().then(() => setNamesLoaded(true), () => {});
     setNaming(text ?? "");
     if (text) return;
@@ -1800,7 +1807,7 @@ export default function Editor() {
     if (recent.at >= 0 && historyRows[recent.at] !== undefined) { pickHistory(historyRows[recent.at]); return true; }
     if (!named) return askPubChem(naming);
     settleFrom.current = doc.atoms.length;
-    place(withOwnCaption(naming.trim(), named));
+    place(withOwnCaption(naming.trim(), named), doc, namingAt.current);
     if (structureFromText(naming)) { if (structureFor(naming.trim())) rememberName(naming.trim(), named); } else if (suggestion) rememberName(suggestion, named);
     setNaming(undefined);
     return true;
@@ -1822,7 +1829,7 @@ export default function Editor() {
       return;
     }
     settleFrom.current = doc.atoms.length;
-    place(frag);
+    place(frag, doc, namingAt.current);
     rememberName(text, frag);
     setNaming(undefined);
     setNotice("Drawn from PubChem.", "info");
@@ -1849,7 +1856,7 @@ export default function Editor() {
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     open: () => openDrawing(),
     opened: () => void takeOpened().catch((e) => setNotice(failure("Octet cannot open this file.", e))),
-    home: () => (DRAW_WINDOW ? void invoke("show_home").catch(() => {}) : HOME_WINDOW ? undefined : templateEdit ? setNotice("Save or cancel the template first.", "info") : (setHome(true), setOverDrawing(true))),
+    home: () => (drawWindow ? void invoke("show_home").catch(() => {}) : homeWindow && home ? undefined : templateEdit ? setNotice("Save or cancel the template first.", "info") : (setHome(true), setOverDrawing(true))),
     quit: () => closeWindow(),
     // File > Close Window on Linux, where GTK has no Close Window of its own (REL-18).
     close: () => closeWindow(),
@@ -5614,7 +5621,7 @@ export default function Editor() {
   const pickHistory = (entry: { name: string; smiles: string }) => {
     const frag = historyMol(entry) ?? structureFor(entry.name);
     if (!frag) return;
-    place(frag);
+    place(frag, doc, namingAt.current);
     rememberName(entry.name, frag);
     setNaming(undefined);
   };
@@ -7848,6 +7855,7 @@ export default function Editor() {
           warningTypes={settings.warningTypes}
           onWarningTypes={(warningTypes) => setSettings((s) => ({ ...s, warningTypes }))}
           checkCopy={settings.checkCopy}
+          windows={settings.windows} onWindows={(windows) => setSettings((s) => ({ ...s, windows }))}
           onCheckCopy={(checkCopy) => setSettings((s) => ({ ...s, checkCopy }))}
           adding={addingColour}
           updates={settings.updates === true}
@@ -8065,7 +8073,7 @@ export default function Editor() {
             back={overDrawing ? { name, key: keyLabel("escape"), go: () => setHome(false) } : undefined}
             recovered={recovered} onRecovered={openRecovered} onDiscard={(entry) => setDialog({ kind: "discard", entry })}
             purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => (elsewhere ? inNew({ text }) : keepWork(() => load(undefined, text)))}
-            windows={HOME_WINDOW ? openWindows : undefined} onWindow={(w: OpenWindow) => void invoke("window_show", { label: w.label }).catch(() => {})}
+            windows={homeWindow ? openWindows : undefined} onWindow={(w: OpenWindow) => void invoke("window_show", { label: w.label }).catch(() => {})}
             onRemovePurpose={removePurpose}
             onCustom={settings.ownPurposes.length < MAX_PURPOSES ? () => setDialog({ kind: "template", name: "", from: purposeOf(settings, settings.purpose) ? settings.purpose : "paper" }) : undefined}
             onRemove={(r) => void homeCall("recent_remove", { path: r.path }).then(() => { refreshRecents(); void library.forget(r.path); }).catch(() => {})}
@@ -8179,7 +8187,7 @@ export default function Editor() {
       <Exit>{__FEEDBACK__ && feedback && <Feedback picture={feedback.picture} onClose={() => setFeedback(undefined)} onError={(e) => setNotice(failure("Octet cannot make your feedback.", e))}
         onSent={() => { setFeedback(undefined); setNotice("Your feedback is ready to send in your mail app.", "done"); }} />}</Exit>
       <FeedbackLink onOpen={() => void invoke("open_link", { name: "feedback" }).catch((e) => setNotice(failure("Octet cannot open your mail app.", e)))} />
-      <ExportButton hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)} />
+      <ExportButton quick={filePrefs.quick} hint={platformLabel(EXPORT_KEYS)} onQuick={() => checkFirst(() => void quickExport())} onExport={() => checkFirst(openExport)} />
       <Exit>{exportView && (
         <ExportDialog prefs={settings.files} onPrefs={(p) => setSettings((s) => ({ ...s, files: { ...s.files, ...p } }))} pictures={exportView}
           chemistry={(part) => {

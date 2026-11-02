@@ -14,6 +14,7 @@ import { readPalettes, readSize, type FloatingPalette, type SavedTemplate, type 
 import type { OwnName } from "./names";
 import { QUICK, readPurposes, type DocStyle, type OwnPurpose, type PurposeKind } from "./docstyle";
 import { DEFAULT_FILES, type FilePrefs } from "./SettingsWindow";
+import { PICTURES } from "./export";
 import { WARNING_TYPES, type WarningType } from "./check";
 import { MS_DEFAULTS, readMsPrefs, type MsPrefs } from "./msanalysis";
 import { readLayout, type HomeLayout } from "./homeLayout";
@@ -35,6 +36,7 @@ export type Settings = {
   warnings: boolean; // View > Show Chemical Warnings: problems marked on the drawing and listed in Actions
   warningTypes: Partial<Record<WarningType, boolean>>; // Settings > Warnings: each kind switched on or off (unset: its default)
   checkCopy: boolean; // ChemDraw's "Check Structure When Copying to Clipboard or Exporting"
+  windows: boolean; // each drawing in a window of its own, with Home in its own (decision 0020); off: one window
   // What new drawings are for (IDEA-SIZE-1): Quick start or the purpose ⌘N starts (the last one picked; Return on
   // Home starts Quick start), the style of Quick start and of each built-in purpose when the user made it their own
   // with "Use for new documents", and the user's own purposes (templates).
@@ -73,7 +75,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, homeLayout: readLayout([], []), updates: true, warnings: true, warningTypes: {}, checkCopy: false, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "" };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, homeLayout: readLayout([], []), updates: true, warnings: true, warningTypes: {}, checkCopy: false, windows: true, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "" };
 export const SETTINGS_KEY = "octet.settings";
 const KEY = SETTINGS_KEY;
 
@@ -97,10 +99,11 @@ export function loadSettings(): Settings {
       curvedArrows: Array.isArray(saved.curvedArrows) ? list<string>(saved.curvedArrows, (k) => typeof k === "string") : DEFAULTS.curvedArrows,
       ...readPurposes(saved),
       // A saved 350 dpi is the old default, not a choice: it moves to the new default.
-      files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), ...(saved.files?.dpi === 350 ? { dpi: DEFAULT_FILES.dpi } : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct" },
+      files: { ...DEFAULT_FILES, ...(typeof saved.files === "object" && saved.files ? saved.files : {}), ...(saved.files?.dpi === 350 ? { dpi: DEFAULT_FILES.dpi } : {}), clipboard: { ...DEFAULT_FILES.clipboard, ...(saved.files?.clipboard ?? {}) }, saveAs: saved.files?.saveAs === "cdxml" ? "cdxml" : "oct", quick: PICTURES.includes(saved.files?.quick) ? saved.files.quick : DEFAULT_FILES.quick },
       paletteWide: saved.paletteWide === true,
       warningTypes: Object.fromEntries(WARNING_TYPES.flatMap((w) => (typeof saved.warningTypes?.[w.id] === "boolean" ? [[w.id, saved.warningTypes[w.id]]] : []))),
       checkCopy: saved.checkCopy === true,
+      windows: saved.windows !== false,
       snapGrid: saved.snapGrid === true,
       // Settings from before Show Grid: Gridlines set (a step in mm) in the default style, or in the style of the
       // purpose New starts, shows the grid.

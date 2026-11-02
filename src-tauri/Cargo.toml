@@ -43,7 +43,7 @@ tauri-plugin-single-instance = "2"
 # Copy and paste on Windows: the clipboard calls (src/clipboard_windows.rs). Alt and a menu's access key, from the web
 # view to the menu bar (src/access_keys.rs): WebView2's own interface. Both already in the build through Tauri.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole", "Win32_UI_WindowsAndMessaging"] }
 webview2-com = "0.39"
 
 # Copy and paste on Linux: GTK's clipboard (src/clipboard_linux.rs). Already in the build through Tauri.
