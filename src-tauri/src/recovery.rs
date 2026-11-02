@@ -2,14 +2,15 @@
 // folder ("recovery"). Save, Don't Save and a clean close remove the copy, so a copy found later is a drawing that a
 // crash, a force quit or a power cut took. Home offers it. Each Octet process locks a file of its own there while it
 // runs (the system lets the lock go when the process ends, even in a crash), so a second copy of Octet never offers
-// a drawing that is still open. Files: <session>.oct (the drawing), <session>.json (its name and when it was kept)
-// and <session>.lock.
+// a drawing that is still open. Each drawing window keeps its own copy, named for the session and the window ("z" and
+// the window's label without its hyphen). Files: <copy>.oct (the drawing), <copy>.json (its name and when it was
+// kept) and <session>.lock. Copies Octet kept before it had more than one window are named for the session only.
 use std::fs::{self, File, OpenOptions};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, Window};
 
 use crate::{write_atomic, MAX_BYTES};
 
@@ -41,9 +42,19 @@ fn valid(id: &str) -> bool {
     !id.is_empty() && id.len() <= 40 && id.bytes().all(|b| b.is_ascii_alphanumeric())
 }
 
+// The session that kept a copy.
+fn session_of(id: &str) -> &str {
+    id.split('z').next().unwrap_or(id)
+}
+
+// A window's copy: "draw-2" keeps <session>zdraw2.
+fn copy_id(session: &str, label: &str) -> String {
+    format!("{session}z{}", label.replace('-', ""))
+}
+
 // Another Octet still runs the session when it holds the session's lock.
 fn live(dir: &Path, id: &str) -> bool {
-    OpenOptions::new().write(true).open(dir.join(format!("{id}.lock"))).is_ok_and(|f| f.try_lock().is_err())
+    OpenOptions::new().write(true).open(dir.join(format!("{}.lock", session_of(id)))).is_ok_and(|f| f.try_lock().is_err())
 }
 
 fn remove(dir: &Path, id: &str) {
@@ -62,7 +73,7 @@ fn meta(dir: &Path, id: &str) -> Meta {
 }
 
 impl Session {
-    // This process's session in `dir`, locked. Lock files of ended sessions that kept nothing are removed.
+    // This process's session in `dir`, locked. Lock files of ended sessions are removed (their copies stay).
     fn start_in(dir: Option<PathBuf>) -> Session {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
         let id = format!("{nanos:x}{:x}", std::process::id());
@@ -71,7 +82,7 @@ impl Session {
             for entry in fs::read_dir(dir).ok()?.flatten() {
                 let path = entry.path();
                 let Some(other) = path.file_stem().and_then(|s| s.to_str()).filter(|_| path.extension().is_some_and(|e| e == "lock")) else { continue };
-                if !dir.join(format!("{other}.oct")).exists() && !live(dir, other) {
+                if !live(dir, other) {
                     let _ = fs::remove_file(&path);
                 }
             }
@@ -86,24 +97,25 @@ impl Session {
         self.dir.as_deref().ok_or_else(|| "Octet has no folder to keep drawings in.".into())
     }
 
-    // The drawing of another session that ended (never this one, never one still open).
+    // The drawing of another session that ended (never this one's, never one still open).
     fn other(&self, id: &str) -> Result<&Path, String> {
         let dir = self.dir()?;
-        if !valid(id) || id == self.id || live(dir, id) {
+        if !valid(id) || session_of(id) == self.id || live(dir, id) {
             return Err("Octet cannot use this drawing now.".into());
         }
         Ok(dir)
     }
 
-    fn write(&self, name: &str, contents: &str) -> Result<(), String> {
+    fn write(&self, label: &str, name: &str, contents: &str) -> Result<(), String> {
         if contents.len() as u64 > MAX_BYTES {
             return Err("This drawing is too large to keep.".into());
         }
         let dir = self.dir()?;
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let kept = Meta { name: name.chars().filter(|c| !c.is_control()).take(200).collect(), at: now() };
-        write_atomic(&dir.join(format!("{}.oct", self.id)), contents.as_bytes()).map_err(|e| e.to_string())?;
-        write_atomic(&dir.join(format!("{}.json", self.id)), &serde_json::to_vec(&kept).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+        let id = copy_id(&self.id, label);
+        write_atomic(&dir.join(format!("{id}.oct")), contents.as_bytes()).map_err(|e| e.to_string())?;
+        write_atomic(&dir.join(format!("{id}.json")), &serde_json::to_vec(&kept).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
     }
 
     fn list(&self) -> Vec<Recovered> {
@@ -126,8 +138,8 @@ impl Session {
         list
     }
 
-    // Its copy becomes this session's, so it stays safe until the user saves it or chooses Don't Save.
-    fn open(&self, id: &str) -> Result<(String, String), String> {
+    // Its copy becomes the window's, so it stays safe until the user saves it or chooses Don't Save.
+    fn open(&self, label: &str, id: &str) -> Result<(String, String), String> {
         let dir = self.other(id)?;
         let oct = dir.join(format!("{id}.oct"));
         if fs::metadata(&oct).map_err(|_| "This drawing is no longer kept.".to_string())?.len() > MAX_BYTES {
@@ -135,8 +147,9 @@ impl Session {
         }
         let text = fs::read_to_string(&oct).map_err(|e| e.to_string())?;
         let kept = meta(dir, id);
-        fs::rename(&oct, dir.join(format!("{}.oct", self.id))).map_err(|e| e.to_string())?;
-        let _ = serde_json::to_vec(&kept).map(|b| write_atomic(&dir.join(format!("{}.json", self.id)), &b));
+        let mine = copy_id(&self.id, label);
+        fs::rename(&oct, dir.join(format!("{mine}.oct"))).map_err(|e| e.to_string())?;
+        let _ = serde_json::to_vec(&kept).map(|b| write_atomic(&dir.join(format!("{mine}.json")), &b));
         let _ = fs::remove_file(dir.join(format!("{id}.json")));
         Ok((kept.name, text))
     }
@@ -148,13 +161,13 @@ pub fn start(app: &AppHandle) -> Session {
 
 // The page's drawing, kept (64 MB at most; the name cut to 200 characters).
 #[tauri::command]
-pub async fn recovery_write(session: State<'_, Session>, name: String, contents: String) -> Result<(), String> {
-    session.write(&name, &contents)
+pub async fn recovery_write(window: Window, session: State<'_, Session>, name: String, contents: String) -> Result<(), String> {
+    session.write(window.label(), &name, &contents)
 }
 
 #[tauri::command]
-pub async fn recovery_clear(session: State<'_, Session>) -> Result<(), String> {
-    remove(session.dir()?, &session.id);
+pub async fn recovery_clear(window: Window, session: State<'_, Session>) -> Result<(), String> {
+    remove(session.dir()?, &copy_id(&session.id, window.label()));
     Ok(())
 }
 
@@ -166,8 +179,8 @@ pub async fn recovery_list(session: State<'_, Session>) -> Result<Vec<Recovered>
 
 // A kept drawing, to edit again: its name and contents.
 #[tauri::command]
-pub async fn recovery_open(session: State<'_, Session>, id: String) -> Result<(String, String), String> {
-    session.open(&id)
+pub async fn recovery_open(window: Window, session: State<'_, Session>, id: String) -> Result<(String, String), String> {
+    session.open(window.label(), &id)
 }
 
 // The user discarded a kept drawing on Home.
@@ -195,15 +208,19 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         let first = Session::start_in(Some(dir.clone()));
         let second = Session::start_in(Some(dir.clone()));
-        first.write("Suzuki cycle", "<CDXML/>").unwrap();
+        first.write("draw-1", "Suzuki cycle", "<CDXML/>").unwrap();
+        first.write("draw-2", "Heck cycle", "<CDXML/>").unwrap();
         assert!(second.list().is_empty(), "a drawing still open is not offered");
         assert!(first.list().is_empty(), "nor is a session's own");
-        assert!(second.open(&first.id).is_err());
-        let id = first.id.clone();
+        let id = copy_id(&first.id, "draw-1");
+        assert!(second.open("draw-1", &id).is_err());
         drop(first); // the crash: the system lets its lock go
         let list = second.list();
-        assert_eq!((list.len(), list[0].id.as_str(), list[0].name.as_str()), (1, id.as_str(), "Suzuki cycle"));
-        assert_eq!(second.open(&id).unwrap(), ("Suzuki cycle".into(), "<CDXML/>".into()));
+        assert_eq!(list.len(), 2, "each window's drawing comes back");
+        assert!(list.iter().any(|r| r.id == id && r.name == "Suzuki cycle"));
+        assert_eq!(second.open("draw-5", &id).unwrap(), ("Suzuki cycle".into(), "<CDXML/>".into()));
+        let heck = second.list().iter().find(|r| r.name == "Heck cycle").map(|r| r.id.clone()).unwrap();
+        remove(&dir, &heck);
         let third = Session::start_in(Some(dir.clone()));
         assert!(third.list().is_empty(), "the second session has it now");
         drop(second);
@@ -213,7 +230,7 @@ mod tests {
         assert_eq!(third.list()[0].name, "Untitled");
         remove(&dir, &third.list()[0].id);
         assert!(third.list().is_empty());
-        assert!(third.open("../etc").is_err());
+        assert!(third.open("draw-1", "../etc").is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -1,29 +1,76 @@
 // Quit from the Dock, the app switcher, a logout or a restart (REL-2). On the Mac these go to the app delegate's
 // applicationShouldTerminate:, which tao 0.37 does not have, so Octet adds it to tao's delegate class at start. While
-// the drawing has unsaved changes (the page tells set_edited), the quit waits (NSTerminateLater, as a document app's
-// does) and the page asks to save them, as Octet > Quit does. Save or Don't Save closes the window and the quit goes
-// on, so a logout or a restart goes on too. Cancel stops it (quit_answer). Octet's own Quit and Close Window close
-// the window, and Octet ends without a call to the delegate.
+// a drawing has unsaved changes (each window tells set_edited), the quit waits (NSTerminateLater, as a document app's
+// does) and each window with unsaved changes asks to save them, one at a time, as Octet > Quit does. Save or Don't
+// Save closes the window and the next one asks; after the last, the quit goes on, so a logout or a restart goes on
+// too. Cancel stops it (quit_answer). Octet's own Quit asks the same way, and then Octet ends.
+use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering::Relaxed};
+use std::sync::Mutex;
 
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager, Window};
 
-static EDITED: AtomicBool = AtomicBool::new(false);
-// A quit from outside Octet: 0 none, 1 waiting for the page's answer, 2 answered yes (AppKit ends Octet).
+// The windows whose drawings have unsaved changes.
+static EDITED: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+// A quit from outside Octet: 0 none, 1 waiting for the windows' answers, 2 answered yes (AppKit ends Octet).
 static QUIT: AtomicU8 = AtomicU8::new(0);
+// A quit going through the windows with unsaved changes.
+static QUITTING: AtomicBool = AtomicBool::new(false);
 
 #[tauri::command]
-pub fn set_edited(edited: bool) {
-    EDITED.store(edited, Relaxed);
+pub fn set_edited(window: Window, edited: bool) {
+    let mut set = EDITED.lock().unwrap();
+    if edited {
+        set.insert(window.label().into());
+    } else {
+        set.remove(window.label());
+    }
 }
 
-// The page kept the drawing (Cancel, or a save that did not happen): a quit that waits stops.
+// The page kept the drawing (Cancel, or a save that did not happen): the quit stops.
 #[tauri::command]
 pub fn quit_answer(quit: bool) {
+    if !quit {
+        QUITTING.store(false, Relaxed);
+    }
     answer(quit);
 }
 
-// The answer to a quit that waits, if one does. The page answers yes by closing its window (main.rs).
+// Quit: each window with unsaved changes asks in turn, then Octet ends.
+pub fn start(app: &AppHandle) {
+    QUITTING.store(true, Relaxed);
+    next(app);
+}
+
+// A window closed: if a quit goes on, the next window asks.
+pub fn closed(app: &AppHandle, label: &str) {
+    EDITED.lock().unwrap().remove(label);
+    if QUITTING.load(Relaxed) {
+        next(app);
+    }
+}
+
+fn next(app: &AppHandle) {
+    let edited = EDITED.lock().unwrap().iter().find(|l| app.get_webview_window(l).is_some()).cloned();
+    match edited.and_then(|l| app.get_webview_window(&l)) {
+        Some(window) => {
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.emit_to(window.label(), "menu", "quit");
+        }
+        None => {
+            QUITTING.store(false, Relaxed);
+            if QUIT.load(Relaxed) == 1 {
+                answer(true);
+            } else {
+                app.exit(0);
+            }
+        }
+    }
+}
+
+// The answer to a quit that waits, if one does.
 pub fn answer(quit: bool) {
     if QUIT.compare_exchange(1, if quit { 2 } else { 0 }, Relaxed, Relaxed).is_err() {
         return;
@@ -44,33 +91,18 @@ pub fn ending() -> bool {
     QUIT.load(Relaxed) == 2
 }
 
-// Before the question about unsaved changes: the window comes back from the Dock or from Hide, so the user sees it.
-pub fn front(app: &AppHandle) {
-    if EDITED.load(Relaxed) {
-        for window in app.webview_windows().values() {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
-        }
-    }
-}
-
 #[cfg(target_os = "macos")]
 pub fn install(app: &AppHandle) {
     use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
     use objc2_app_kit::NSApplicationTerminateReply;
     use std::sync::OnceLock;
-    use tauri::Emitter;
 
     static APP: OnceLock<AppHandle> = OnceLock::new();
     // NSTerminateNow with no unsaved changes. Else NSTerminateLater, and the page gets Quit after AppKit's call.
     extern "C" fn should_terminate(_: &AnyObject, _: Sel, _: *mut AnyObject) -> NSApplicationTerminateReply {
-        let Some(app) = APP.get().filter(|_| EDITED.load(Relaxed)).cloned() else { return NSApplicationTerminateReply::TerminateNow };
+        let Some(app) = APP.get().filter(|_| !EDITED.lock().unwrap().is_empty()).cloned() else { return NSApplicationTerminateReply::TerminateNow };
         QUIT.store(1, Relaxed);
-        std::thread::spawn(move || {
-            front(&app);
-            app.emit_to("main", "menu", "quit")
-        });
+        std::thread::spawn(move || start(&app));
         NSApplicationTerminateReply::TerminateLater
     }
     let _ = APP.set(app.clone());

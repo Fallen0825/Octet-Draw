@@ -31,6 +31,7 @@ mod search;
 mod spectrum;
 mod update;
 mod vector;
+mod windows;
 
 // Opens a web address or a file in the user's own program for it (the browser, the mail app). On Windows the open
 // crate asks the shell (ShellExecuteExW) directly: cmd.exe would read each & in an address as a new command. ::open is
@@ -74,6 +75,11 @@ fn set_bar(app: &AppHandle, bar: Menu<Wry>) -> tauri::Result<()> {
     if let Some(help) = bar.get("help").and_then(|h| h.as_submenu().cloned()) {
         help.set_as_help_menu_for_nsapp()?;
     }
+    // The system lists the open windows in the Window menu.
+    #[cfg(target_os = "macos")]
+    if let Some(window) = bar.get("window").and_then(|w| w.as_submenu().cloned()) {
+        window.set_as_windows_menu_for_nsapp()?;
+    }
     Ok(())
 }
 
@@ -101,19 +107,34 @@ fn menu_items(list: State<'_, MenuList>) -> Vec<(String, String, String, String)
     list.0.lock().unwrap().clone()
 }
 
+// Each window sends its lists when they change and when it comes to the front (the drawings' own colours and fonts
+// differ): the menu bar is built again only when a list is new. True when `next` was new and is kept.
+fn keep_new<T: PartialEq>(held: &Mutex<T>, next: T) -> bool {
+    let mut held = held.lock().unwrap();
+    if *held == next {
+        return false;
+    }
+    *held = next;
+    true
+}
+
 // The user's menu shortcuts (at most 500, ids and accelerators of bounded length); the menu bar is built again
 // with them. The frontend sets its check marks again afterwards.
 #[tauri::command]
 fn set_menu_keys(app: AppHandle, keys: HashMap<String, String>) -> Result<(), String> {
     let keys: HashMap<String, String> = keys.into_iter().filter(|(id, k)| id.len() <= 60 && k.len() <= 40 && !k.chars().any(char::is_control)).take(500).collect();
-    *app.state::<MenuKeys>().0.lock().unwrap() = keys;
+    if !keep_new(&app.state::<MenuKeys>().0, keys) {
+        return Ok(());
+    }
     rebuild(&app)
 }
 
 // Settings > Online search: the Search menu is there only while it is on.
 #[tauri::command]
 fn set_online_search(app: AppHandle, on: bool) -> Result<(), String> {
-    *app.state::<search::Online>().0.lock().unwrap() = on;
+    if !keep_new(&app.state::<search::Online>().0, on) {
+        return Ok(());
+    }
     rebuild(&app)
 }
 
@@ -129,7 +150,9 @@ fn set_check(checks: State<'_, Checks>, id: String, checked: bool) -> Result<(),
 #[tauri::command]
 fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
     let names: Vec<String> = names.into_iter().take(44).map(|n| n.chars().filter(|c| !c.is_control()).take(40).collect()).collect();
-    *app.state::<Palette>().0.lock().unwrap() = names;
+    if !keep_new(&app.state::<Palette>().0, names) {
+        return Ok(());
+    }
     rebuild(&app)
 }
 
@@ -140,7 +163,9 @@ fn set_palette(app: AppHandle, names: Vec<String>) -> Result<(), String> {
 fn set_text_lists(app: AppHandle, fonts: Vec<String>, sizes: Vec<f64>) -> Result<(), String> {
     let fonts: Vec<String> = fonts.into_iter().take(60).map(|n| n.chars().filter(|c| !c.is_control()).take(64).collect()).collect();
     let sizes: Vec<f64> = sizes.into_iter().filter(|s| s.is_finite() && (0.1..=999.0).contains(s)).take(40).collect();
-    *app.state::<TextLists>().0.lock().unwrap() = (fonts, sizes);
+    if !keep_new(&app.state::<TextLists>().0, (fonts, sizes)) {
+        return Ok(());
+    }
     rebuild(&app)
 }
 
@@ -811,7 +836,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // Window: what the system supports. GTK on Linux has neither item, so Linux has no Window menu; Windows has no
     // full screen item.
     section.replace("Window".into());
-    let window = Submenu::with_items(app, "&Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
+    let window = Submenu::with_id_and_items(app, "window", "&Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
     #[cfg(target_os = "macos")]
     window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
     // Help on every platform, as ChemDraw's (REL-18). On the Mac, set_bar makes it the system's Help menu, with its
@@ -884,6 +909,7 @@ fn main() {
         .manage(open::Waiting::default())
         .manage(recent::Recents::default())
         .manage(home::Home::default())
+        .manage(windows::Windows::default())
         .manage(MenuKeys::default())
         .manage(MenuList::default())
         .manage(Palette::default())
@@ -891,7 +917,7 @@ fn main() {
         .manage(TextLists::default())
         .manage(Purposes::default())
         .manage(TemplateSets::default())
-        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened])
+        .invoke_handler(tauri::generate_handler![recent::recent_list, recent::recent_thumb, recent::recent_remove, recent::open_recent, home::home_read, home::home_write, home::home_pick_drawings, home::home_pick_picture, home::thumb_save, home::thumb_load, home::thumb_drop, revert_drawing, menu_items, set_menu_keys, set_online_search, search::search_online, pubchem::pubchem_structure, open_link, open_licences, reveal_file, open_drawing, pick_style_file, save_drawing, set_check, set_palette, set_text_lists, set_purposes, set_template_sets, import_structure, print_page, clipboard::copy_to_clipboard, clipboard::read_clipboard, export::export_file, export::system_fonts, #[cfg(feedback)] feedback::snapshot, #[cfg(feedback)] feedback::send_feedback, update::update_check, update::update_install, recovery::recovery_write, recovery::recovery_clear, recovery::recovery_list, recovery::recovery_open, recovery::recovery_discard, crashlog::log_error, crashlog::crash_report, crashlog::show_log, quit::set_edited, quit::quit_answer, open::take_opened, windows::open_window, windows::window_start, windows::window_info, windows::window_list, windows::window_show, windows::show_home])
         .setup(|app| {
             let handle = app.handle();
             // Files named when Octet starts (Explorer and file managers pass them as arguments).
@@ -909,11 +935,13 @@ fn main() {
             app.manage(Checks(Mutex::new(checks)));
             *app.state::<MenuList>().0.lock().unwrap() = list;
             // With the Reaxys window in front, Undo, Redo and Select All act on its page. Every other command goes
-            // to the drawing, and only the main window hears menu commands.
+            // to the window in front (Home or a drawing), and only that window hears it. Quit goes through every
+            // window with unsaved changes (quit.rs).
             app.on_menu_event(|app, event| {
                 let id = event.id().0.as_str();
                 if id == "quit" {
-                    quit::front(app);
+                    quit::start(app);
+                    return;
                 }
                 if id == "recent_clear" {
                     recent::clear(app);
@@ -930,21 +958,26 @@ fn main() {
                         return;
                     }
                 }
-                let _ = app.emit_to("main", "menu", id);
+                if let Some(label) = windows::front(app) {
+                    let _ = app.emit_to(label, "menu", id);
+                }
             });
             Ok(())
         })
         // Files dropped on the window, with where they were dropped in CSS pixels from the top left. wry 0.57 gives
         // WebView2's point in device pixels, and WebKit's (Mac, Linux) in CSS pixels already.
         .on_window_event(|window, event| {
-            // Only the drawing's window takes files (not the Reaxys window).
-            if window.label() != "main" {
+            if let WindowEvent::Focused(true) = event {
+                windows::focused(window.label());
+            }
+            // Only Home and the drawing windows take files (not the Reaxys window).
+            if !windows::ours(window.label()) {
                 return;
             }
             if let WindowEvent::DragDrop(DragDropEvent::Drop { paths, position }) = event {
                 #[cfg(windows)]
                 let position = position.to_logical::<f64>(window.scale_factor().unwrap_or(1.0));
-                open::offer(window.app_handle(), paths.clone(), Some((position.x, position.y)));
+                open::offer(window.app_handle(), paths.clone(), Some((window.label().to_string(), position.x, position.y)));
             }
         })
         .build(tauri::generate_context!())
@@ -953,9 +986,12 @@ fn main() {
             // Files opened from Finder or the Dock (a double-click, Open With, a drop on the Dock icon).
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Opened { urls } => open::offer(_app, urls.into_iter().filter_map(|u| u.to_file_path().ok()), None),
-            // A quit from the Dock or a logout that waited (quit.rs): the page closed the drawing's window after its
-            // question, so the quit goes on. AppKit ends Octet, so Tauri does not end it first.
-            tauri::RunEvent::WindowEvent { label, event: WindowEvent::Destroyed, .. } if label == "main" => quit::answer(true),
+            // A window closed: it leaves Home's list, and a quit that waits goes on to the next window (quit.rs).
+            // After a quit from the Dock or a logout, AppKit ends Octet, so Tauri does not end it first.
+            tauri::RunEvent::WindowEvent { label, event: WindowEvent::Destroyed, .. } => {
+                windows::closed(_app, &label);
+                quit::closed(_app, &label);
+            }
             tauri::RunEvent::ExitRequested { api, .. } if quit::ending() => api.prevent_exit(),
             _ => {}
         });

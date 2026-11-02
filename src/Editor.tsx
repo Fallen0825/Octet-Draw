@@ -29,7 +29,7 @@ import { snapBoxes, snapMove, type Guide } from "./snap";
 import { clean3d, MOST_3D } from "./clean3d";
 import { arrowTrace, kept, lobesOf, nearTrace, shapeTrace } from "./hit";
 import { store, type Store } from "./store";
-import { loadSettings, RULER_UNITS, saveSettings } from "./settings";
+import { loadSettings, RULER_UNITS, saveSettings, SETTINGS_KEY } from "./settings";
 import { Menu, menuWidth } from "./Menu";
 import { ACTIONS, actionFor, controlTakes, feedbackChord, keyOf, keymap, label as keyLabel, menuRuns, native, platformLabel, registerMenu, textEntry, textKey, toAccelerator } from "./keys";
 import { Actions, ActionsMenu, actionItems, FontPick, SearchGlyph, type Context } from "./Actions";
@@ -51,7 +51,7 @@ import { fromCdxml, parseXml, toCdxml, type CdxmlOptions } from "./cdxml";
 import { isDrawingText, lostText, readCdx, readOct, writeCdx, writeOct } from "./oct";
 import { BASE64_MAGIC, fromBase64, hexToBase64, toBase64, xmlToCdx } from "./cdx";
 import { About } from "./About";
-import { Home, NameBox, type RecentEntry, type RecoveredEntry } from "./Home";
+import { Home, NameBox, type RecentEntry, type RecoveredEntry, type OpenWindow } from "./Home";
 import { useHomeLibrary } from "./homeLibrary";
 import { call as homeCall, HOME_API } from "./homeApi";
 import { Coach, NOTHING_SEEN, type Seen } from "./Coach";
@@ -119,6 +119,10 @@ const MOD = MAC ? "⌘" : "Ctrl+";
 const EXPORT_KEYS = navigator.platform.startsWith("Mac") ? "⌃⌘E" : "⇧Ctrl+E";
 // In the desktop app the native menu owns undo, redo and the file commands; in a browser (dev only) the page does.
 const TAURI = "__TAURI_INTERNALS__" in window;
+// Home and the drawing windows (src-tauri/src/windows.rs): in the app Home is a window of its own, and each drawing has
+// a window. ?window marks a drawing window; ?editor (tests) is the editor with no Home.
+const DRAW_WINDOW = TAURI && new URLSearchParams(location.search).has("window");
+const HOME_WINDOW = TAURI && !DRAW_WINDOW && !new URLSearchParams(location.search).has("editor");
 // File > Print's paper size (printDrawing).
 let pageSheet: CSSStyleSheet | undefined;
 // In the app, copy and paste go through the app (src-tauri/src/clipboard.rs), with the types ChemDraw and Office use
@@ -376,6 +380,9 @@ const OCTET_CLIP = "application/x-octet+json";
 // A file the system asked Octet to open, or dropped on the window (src-tauri/src/open.rs). path: set when Save may
 // write over it. at: where it was dropped, in CSS pixels from the window's top left.
 type OpenedFile = { name: string; path: string | null; text: string | null; picture: string | null; error: string | null; at: [number, number] | null };
+// What a new drawing window opens: a new drawing for a purpose, the tutorial, a recent or recovered drawing, an example
+// drawing's text, a file picked in Open, or files Octet was asked to open.
+type Start = { new: string } | { tutorial: true } | { recent: string } | { recovered: string } | { text: string } | { picked: [string, string] } | { files: OpenedFile[] };
 // Abbreviations Contract Label recognises, each with its InChI when capped with xenon at its attachment point
 // (worked out once, on first use): the groups chemists name, and condensed formulas they write.
 const CONTRACTED = ["OMe", "OEt", "OiPr", "OtBu", "OAc", "OBz", "OBn", "OPh", "OTs", "OMs", "OTf", "OTBS", "OTIPS", "OTBDPS", "OTMS", "OMOM", "OTHP", "OPMB",
@@ -479,6 +486,8 @@ let crashOffered = false; // the log of a crash is offered once, at start
 
 export default function Editor() {
   const [loaded, setLoaded] = useState(false);
+  // Each time the window comes to the front: the menu bar takes this window's ticks, colours and fonts again.
+  const [fronted, setFronted] = useState(0);
   const [h, dispatch] = useReducer(history, rescue.current?.h ?? { stack: [EMPTY], at: 0 });
   const doc = h.stack[h.at];
   // The drawing as it is now, for work that ends later (Cut deletes after the copy is on the clipboard).
@@ -992,7 +1001,7 @@ export default function Editor() {
   // Home (decision 0003): where Octet opens (?editor skips it, for tests), with the name box on first launch and the
   // tutorial then, or from Help > Tutorial. Recent drawings come from the app (src-tauri/src/recent.rs), and drawings
   // a crash took from src-tauri/src/recovery.rs.
-  const [home, setHome] = useState(() => rescue.current?.home ?? !new URLSearchParams(location.search).has("editor"));
+  const [home, setHome] = useState(() => rescue.current?.home ?? (!DRAW_WINDOW && !new URLSearchParams(location.search).has("editor")));
   // Home opened over a drawing (Home in the File menu) offers to go back to it; Home at the start has nothing to go back to.
   const [overDrawing, setOverDrawing] = useState(false);
   const homeOpen = useRef(home); // for the menu listener, which is set up once
@@ -1006,6 +1015,17 @@ export default function Editor() {
   // The drawing the user has, set aside while a template is edited: what recovery keeps and what Quit asks about.
   const mainH = templateEdit?.back.h ?? h, mainFile = templateEdit?.back.file ?? file, mainDoc = mainH.stack[mainH.at], mainDirty = mainDoc !== mainFile.saved;
   const mainName = mainFile.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? mainFile.name ?? "Untitled";
+  // In the app, what opens from Home opens in a window of its own, and so does New or Open in a drawing window, unless
+  // the window holds an untouched new drawing (as a Mac app reuses its empty Untitled document). The open windows,
+  // for Home's list, and to bring a drawing that is open already to the front.
+  const [openWindows, setOpenWindows] = useState<OpenWindow[]>([]);
+  const elsewhere = HOME_WINDOW || (DRAW_WINDOW && (!!file.path || file.name !== undefined || dirty || !!templateEdit || !!extent(doc)));
+  const inNew = (start: Start) => void invoke("open_window", { start }).catch((e) => setNotice(failure("Octet cannot open a new window.", e)));
+  const openIn = (path: string | null | undefined) => {
+    const there = path ? openWindows.find((w) => w.path === path) : undefined;
+    if (there) void invoke("window_show", { label: there.label }).catch(() => {});
+    return !!there;
+  };
 
   useEffect(() => { ready.then(() => setLoaded(true)); }, []);
   // Name to structure loads in the background once the window has settled.
@@ -1287,7 +1307,7 @@ export default function Editor() {
     );
   };
   useEffect(() => {
-    if (!settings.updates) return;
+    if (!settings.updates || DRAW_WINDOW) return;
     const t = setTimeout(() => checkUpdates(false), 5000);
     return () => clearTimeout(t);
   }, [settings.updates === true]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1300,6 +1320,7 @@ export default function Editor() {
   // A template open on the canvas counts too: Quit asks, and the page says to save or cancel it first.
   const unsaved = mainDirty || !!templateEdit;
   useEffect(() => { if (TAURI) invoke("set_edited", { edited: unsaved }).catch(() => {}); }, [unsaved]);
+  useEffect(() => { if (DRAW_WINDOW) invoke("window_info", { name: mainName, path: mainFile.path ?? null, edited: unsaved, picture: null }).catch(() => {}); }, [mainName, mainFile.path, unsaved]);
   // Recovery keeps the user's drawing: while a template is edited, the drawing set aside.
   useEffect(() => {
     if (!TAURI) return;
@@ -1321,20 +1342,20 @@ export default function Editor() {
   // After a crash, the next start offers the log (src-tauri/src/crashlog.rs), to show or to email. Nothing is sent
   // unless the user chooses.
   useEffect(() => {
-    if (!TAURI || crashOffered) return;
+    if (!TAURI || DRAW_WINDOW || crashOffered) return;
     crashOffered = true;
     invoke<string | null>("crash_report").then((log) => { if (log) setDialog({ kind: "crashed", log }); }).catch(() => {});
   }, []);
   // A new drawing for Quick start or a purpose (IDEA-SIZE-1): its style and page, at the middle of the window and the
   // open zoom. ⌘N starts the one picked last, as ChemDraw's New takes the stationery used last; Return on Home starts
   // Quick start.
-  const newDrawing = (id = settings.purpose) => keepWork(() => {
+  const newDrawing = (id = settings.purpose) => elsewhere ? inNew({ new: id }) : keepWork(() => {
     const style = styleFor(settings, id), fresh: Mol = { ...EMPTY, style };
     drawingColours.current = []; set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); setCoach(0); openView(style);
     setSettings((s) => ({ ...s, purpose: id === QUICK || purposeOf(s, id) ? id : QUICK }));
   });
   // The tutorial is always on Paper (IDEA-SIZE-14): its steps are made for a manuscript's sizes.
-  const startTutorial = () => keepWork(() => {
+  const startTutorial = () => elsewhere ? inNew({ tutorial: true }) : keepWork(() => {
     const style = styleFor(settings, "paper"), fresh: Mol = { ...EMPTY, style };
     set(fresh); setFile({ saved: fresh }); setGuides(freshGuides([0, 0], style)); setHome(false); openView(style); setTool("bond"); setSeen(NOTHING_SEEN); setCoach((n) => n + 1);
     setSettings((s) => ({ ...s, tutorialDone: true }));
@@ -1398,7 +1419,7 @@ export default function Editor() {
     const [names, current] = JSON.parse(purposeMenu);
     if (TAURI) invoke("set_purposes", { names, current }).then(syncChecks).catch(() => {});
   }, [purposeMenu]); // eslint-disable-line react-hooks/exhaustive-deps
-  const openDrawing = () => keepWork(() => void open());
+  const openDrawing = () => (elsewhere ? void open() : keepWork(() => void open()));
   // File > Revert to Saved: after the question macOS asks, the drawing's file read again. One step to undo.
   const revertToSaved = () => {
     if (!file.path || !TAURI) return setNotice("This drawing has no saved file.", "info");
@@ -1407,17 +1428,17 @@ export default function Editor() {
   };
   const revert = () => void invoke<string>("revert_drawing", { path: file.path }).then((text) => load(file.path, text)).catch((e) => setNotice(failure("Octet cannot revert this drawing.", e)));
   // A drawing on the recent list or in a project on Home (only those open without the file dialog).
-  const openRecent = (r: { path: string }) => r.path === file.path && overDrawing ? setHome(false) : keepWork(() => void homeCall<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
+  const openRecent = (r: { path: string }) => openIn(r.path) ? undefined : elsewhere ? inNew({ recent: r.path }) : r.path === file.path && overDrawing ? setHome(false) : keepWork(() => void homeCall<[string, string]>("open_recent", { path: r.path }).then((picked) => load(picked[0], picked[1]))
     .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
   // A recovered drawing opens with its changes unsaved; its kept copy becomes this window's.
-  const openRecovered = (r: RecoveredEntry) => keepWork(() => void keep<[string, string]>("recovery_open", { id: r.id }).then(([title, text]) => { keeper.kept = true; load(undefined, text, title); })
+  const openRecovered = (r: RecoveredEntry) => elsewhere ? inNew({ recovered: r.id }) : keepWork(() => void keep<[string, string]>("recovery_open", { id: r.id }).then(([title, text]) => { keeper.kept = true; load(undefined, text, title); })
     .catch((e) => { setNotice(failure("Octet cannot open this drawing.", e)); refreshRecents(); }));
   const refreshRecents = () => {
     if (!HOME_API) return;
     homeCall<RecentEntry[]>("recent_list").then(setRecents).catch(() => {});
     homeCall<RecoveredEntry[]>("recovery_list").then(setRecovered).catch(() => {});
   };
-  useEffect(() => { if (home) refreshRecents(); }, [home]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (home) refreshRecents(); }, [home, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
   // Home's projects and thumbnails (src/projects.ts).
   const library = useHomeLibrary({ active: home, recents, notice: (text, kind) => setNotice(text, kind) });
   // Opened or saved: the drawing's picture goes to its Home tile, and to Octet's copy for a drawing in a project.
@@ -1428,17 +1449,24 @@ export default function Editor() {
     return () => clearTimeout(t);
   }, [file]); // eslint-disable-line react-hooks/exhaustive-deps
   // When Octet was last opened, for the next "Welcome back".
-  useEffect(() => { setSettings((s) => ({ ...s, lastSeen: Date.now() })); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!DRAW_WINDOW) setSettings((s) => ({ ...s, lastSeen: Date.now() })); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // A spectrum picked in a drawing window goes into its drawing; from Home it opens in a new window.
   async function open() {
     try {
       const picked = await invoke<[string, string] | null>("open_drawing");
       if (!picked) return;
-      if (isSpectrum(picked[1])) return openSpectrumText(picked[1], picked[0].split(/[\\/]/).pop() ?? "this file");
       if (isTemplateFile(picked[0])) return openTemplateFile(picked[0].split(/[\\/]/).pop() ?? "Templates.ctp", picked[1]);
-      load(picked[0], picked[1]);
+      if (isSpectrum(picked[1]) && !HOME_WINDOW) return openSpectrumText(picked[1], picked[0].split(/[\\/]/).pop() ?? "this file");
+      if (openIn(picked[0])) return;
+      if (elsewhere) return inNew({ picked });
+      openPicked(picked);
     } catch (e) {
       setNotice(failure("Octet cannot open this file.", e));
     }
+  }
+  function openPicked(picked: [string, string]) {
+    if (isSpectrum(picked[1])) openSpectrumText(picked[1], picked[0].split(/[\\/]/).pop() ?? "this file");
+    else load(picked[0], picked[1]);
   }
   // Files the system asked Octet to open (Finder, Explorer, the Dock, a second launch) or that were dropped on the
   // window (src-tauri/src/open.rs; REL-14, CH-6). Dropped on a drawing, they go into it. Otherwise the first one opens,
@@ -1467,13 +1495,15 @@ export default function Editor() {
     // ChemDraw template files, opened or dropped anywhere: each becomes a set of templates.
     for (const f of all) if (f.text !== null && !f.error && isTemplateFile(f.name)) openTemplateFile(f.name, f.text);
     const files = all.filter((f) => !isTemplateFile(f.name) || f.error);
-    // Spectra (on the canvas or the Spectrum panel, or opened) go into the drawing.
-    for (const f of files) if (f.text !== null && isSpectrum(f.text)) openSpectrumText(f.text, f.name);
-    const read = files.filter((f) => f.picture !== null || (f.text !== null && !isSpectrum(f.text)));
+    // Spectra (on the canvas or the Spectrum panel, or opened) go into the drawing; on Home, each opens in a new window.
+    if (!HOME_WINDOW) for (const f of files) if (f.text !== null && isSpectrum(f.text)) openSpectrumText(f.text, f.name);
+    const read = files.filter((f) => f.picture !== null || (f.text !== null && (HOME_WINDOW || !isSpectrum(f.text))));
     for (const f of files) if (f.error) setNotice(f.error);
     if (read.some((f) => f.text !== null && !isDrawingText(f.text))) await ready;
-    const dropped = read.filter((f) => f.at && insert), first = read.find((f) => !(f.at && insert));
+    const dropped = read.filter((f) => f.at && insert), opening = read.filter((f) => !(f.at && insert)), first = opening[0];
     if (dropped.length) await dropFiles(dropped);
+    // Each file to open opens in a window of its own (one open already comes to the front).
+    if (elsewhere) { for (const f of opening) if (!openIn(f.path)) inNew({ files: [f] }); return; }
     if (first?.picture) {
       const m = await pictureDrawing(fromBase64(first.picture), newStyle.bond, MAX_PICTURE, `Octet cannot open ${first.name}.`);
       if (m) keepWork(() => load(undefined, { ...m, style: newStyle }, first.name.replace(/\.[^.]*$/, "")));
@@ -1819,7 +1849,7 @@ export default function Editor() {
     ...Object.fromEntries(settings.ownPurposes.map((p, k) => [`new_own_${k}`, () => newDrawing(p.id)])),
     open: () => openDrawing(),
     opened: () => void takeOpened().catch((e) => setNotice(failure("Octet cannot open this file.", e))),
-    home: () => (templateEdit ? setNotice("Save or cancel the template first.", "info") : (setHome(true), setOverDrawing(true))),
+    home: () => (DRAW_WINDOW ? void invoke("show_home").catch(() => {}) : HOME_WINDOW ? undefined : templateEdit ? setNotice("Save or cancel the template first.", "info") : (setHome(true), setOverDrawing(true))),
     quit: () => closeWindow(),
     // File > Close Window on Linux, where GTK has no Close Window of its own (REL-18).
     close: () => closeWindow(),
@@ -2266,7 +2296,19 @@ export default function Editor() {
     saveSettings(settings);
     if (TAURI) syncChecks();
   }, [settings]);
-  useEffect(() => { if (TAURI) syncChecks(); }, [guides]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (TAURI) syncChecks(); }, [guides, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A setting changed in another window.
+  const settingsNow = useRef(settings);
+  settingsNow.current = settings;
+  useEffect(() => {
+    const changed = (e: StorageEvent) => {
+      if (e.key !== SETTINGS_KEY) return;
+      const next = loadSettings();
+      if (JSON.stringify(next) !== JSON.stringify(settingsNow.current)) setSettings(next);
+    };
+    addEventListener("storage", changed);
+    return () => removeEventListener("storage", changed);
+  }, []);
   // The last menu command the page ran from a Ctrl key off the Mac, so the same command from the menu does not run twice.
   const pageRan = useRef<{ id: string; at: number }>(undefined);
   useEffect(() => {
@@ -2287,6 +2329,36 @@ export default function Editor() {
     const take = () => commands.current.opened();
     const off = listen("opened", take);
     void off.then(take, take);
+    return () => { off.then((f) => f()); };
+  }, []);
+  // A new drawing window opens what Home or another window asked for (src-tauri/src/windows.rs).
+  useEffect(() => {
+    if (!DRAW_WINDOW) return;
+    void invoke<Start | null>("window_start").then(async (s) => {
+      if (!s) return;
+      if ("new" in s) newDrawing(s.new);
+      else if ("tutorial" in s) startTutorial();
+      else if ("recent" in s) openRecent({ path: s.recent });
+      else if ("recovered" in s) openRecovered({ id: s.recovered, name: "", at: 0 });
+      else if ("text" in s) load(undefined, s.text);
+      else if ("picked" in s) openPicked(s.picked);
+      else await takeFiles(s.files, false);
+    }).catch((e) => setNotice(failure("Octet cannot open this drawing.", e)));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The open drawing windows, kept up to date.
+  useEffect(() => {
+    if (!TAURI) return;
+    void invoke<OpenWindow[]>("window_list").then(setOpenWindows).catch(() => {});
+    const off = listen<OpenWindow[]>("windows", (e) => setOpenWindows(e.payload));
+    return () => { off.then((f) => f()); };
+  }, []);
+  // In front: the menu bar takes this window's state again (and Home reads its lists again). Left: a drawing window
+  // gives Home its picture.
+  const leftWindow = useRef(() => {});
+  leftWindow.current = () => { if (DRAW_WINDOW) invoke("window_info", { name: mainName, path: mainFile.path ?? null, edited: unsaved, picture: pictureOf(mainDoc) ?? "" }).catch(() => {}); };
+  useEffect(() => {
+    if (!TAURI) return;
+    const off = getCurrentWindow().onFocusChanged(({ payload }) => (payload ? setFronted((n) => n + 1) : leftWindow.current()));
     return () => { off.then((f) => f()); };
   }, []);
   // Every menu command's shortcut can be changed in Settings, with the canvas keys: the menu lists its commands, and
@@ -2375,7 +2447,7 @@ export default function Editor() {
   const fontNames = fontList.join("\n");
   useEffect(() => {
     if (TAURI) invoke("set_text_lists", { fonts: fontList, sizes: sizeList }).then(syncChecks).catch(() => {});
-  }, [fontNames, sizeList]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [fontNames, sizeList, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
   const lastSize = useRef<number>(undefined); // the size last typed in Other Size…
   // The text style of the first labelled atom among these, for the label style buttons; none when no atom has a label.
   const labelText = (ids: number[]) => {
@@ -5459,7 +5531,7 @@ export default function Editor() {
   const paletteNames = [...settings.palette, ...docColours].map((c) => c.name).join("\n");
   useEffect(() => {
     if (TAURI) invoke("set_palette", { names: paletteNames.split("\n").filter(Boolean) }).then(syncChecks).catch(() => {});
-  }, [paletteNames]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [paletteNames, fronted]); // eslint-disable-line react-hooks/exhaustive-deps
   const untidy = useMemo(() => messy(doc, selection), [doc, selection]);
   // Text the panel asked to copy; the copy handler uses it instead of SMILES.
   const copyText = useRef<string>(undefined);
@@ -7992,7 +8064,8 @@ export default function Editor() {
         : <Home leaving={!home} name={settings.userName ?? ""} first={welcomed} away={away} recents={recents} newKey={keyLabel("enter")} openKey={hint("open")}
             back={overDrawing ? { name, key: keyLabel("escape"), go: () => setHome(false) } : undefined}
             recovered={recovered} onRecovered={openRecovered} onDiscard={(entry) => setDialog({ kind: "discard", entry })}
-            purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => keepWork(() => load(undefined, text))}
+            purposes={purposeList} onNew={newDrawing} onOpen={openDrawing} onRecent={openRecent} onStarter={(text) => (elsewhere ? inNew({ text }) : keepWork(() => load(undefined, text)))}
+            windows={HOME_WINDOW ? openWindows : undefined} onWindow={(w: OpenWindow) => void invoke("window_show", { label: w.label }).catch(() => {})}
             onRemovePurpose={removePurpose}
             onCustom={settings.ownPurposes.length < MAX_PURPOSES ? () => setDialog({ kind: "template", name: "", from: purposeOf(settings, settings.purpose) ? settings.purpose : "paper" }) : undefined}
             onRemove={(r) => void homeCall("recent_remove", { path: r.path }).then(() => { refreshRecents(); void library.forget(r.path); }).catch(() => {})}
@@ -8095,7 +8168,7 @@ export default function Editor() {
       )}</Exit>
       <Exit>{dialog?.kind === "update" && (
         <Dialog title={`Update to Octet ${dialog.version}?`} action="Update" onClose={() => setDialog(undefined)}
-          onAction={() => { setDialog(undefined); leave(() => {
+          onAction={() => { setDialog(undefined); if (openWindows.some((w) => w.edited)) return setNotice("Save or close your other drawings first. Octet restarts to update.", "info"); leave(() => {
             setNotice("Downloading the update.", "info");
             return invoke("update_install").catch((e) => { throw `Octet cannot install the update. ${e}`; });
           }); }}>

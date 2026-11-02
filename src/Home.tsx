@@ -4,6 +4,8 @@
 // Custom template), Recent (the recent drawings as pictures, or three example drawings before there are any, with
 // Open), and Projects. One click starts or opens a drawing. On first launch Home asks the user's name first, in the
 // dotted frame a selected group gets. Nothing here needs an account.
+// In the app Home is a window of its own (decision 0020): what opens from it opens in a new window, and the drawings
+// open in windows show first, under Open windows.
 // The sections are modules: a drag by the heading moves one up or down, a click on the heading folds it to the heading
 // and back, and the heading's menu has Move up, Move down and Collapse or Expand. New and Templates sit side by side
 // when they are next to each other. Settings keeps the order and the folded sections (src/homeLayout.ts).
@@ -41,6 +43,8 @@ import type { HomeLibrary, ThumbTarget, TilePicture } from "./homeLibrary";
 import { STARTERS } from "./starters";
 
 export type RecentEntry = { path: string; name: string; at: number; thumb?: string; found: boolean };
+// A drawing open in a window of its own (src-tauri/src/windows.rs), with its picture as an SVG when it has one.
+export type OpenWindow = { label: string; name: string; path: string | null; edited: boolean; picture: string | null };
 // A drawing a crash took, kept with its unsaved changes (src-tauri/src/recovery.rs).
 export type RecoveredEntry = { id: string; name: string; at: number };
 
@@ -174,6 +178,7 @@ type Props = {
   leaving?: boolean; // fading out as a drawing opens
   name: string; first: boolean; away: number; recents: RecentEntry[]; newKey: string; openKey?: string;
   back?: { name: string; key: string; go: () => void }; // the drawing Home was opened over, to go back to
+  windows?: OpenWindow[]; onWindow: (w: OpenWindow) => void; // the drawings open in windows of their own (the app)
   recovered: RecoveredEntry[]; onRecovered: (r: RecoveredEntry) => void; onDiscard: (r: RecoveredEntry) => void;
   purposes: PurposeTile[]; // the templates: Octet's, then the user's own
   onNew: (purpose: string) => void; onOpen: () => void; onRecent: (r: { path: string }) => void; onRemove: (r: RecentEntry) => void;
@@ -781,9 +786,28 @@ export function Home(p: Props) {
       {bodies[id]()}
     </Section>
   );
+  // The drawings open in windows, first: a click brings the window to the front.
+  const openWindows = !!p.windows?.length && (
+    <Section id="windows" title="Open windows">
+      <div className="home-grid">
+        {p.windows.map((w, k) => (
+          <div key={w.label} className="home-slot" style={arrive(k)}>
+            <button className="home-tile" data-tile={`window:${w.label}`} data-tip={w.path ? tilde(w.path, lib.home) : undefined} onClick={() => p.onWindow(w)}>
+              <DrawingPicture name={w.name} picture={w.picture ? { src: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(w.picture)}`, fill: false, own: false } : undefined} />
+              <span className="home-caption">
+                <span className="home-name">{w.name}</span>
+                <span className="home-when">{w.edited ? "Edited" : w.path ? "Saved" : "New"}</span>
+              </span>
+            </button>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
   const main = (
     <>
       <h1 className="home-greeting">{greeting(p.name, now, p.first, p.away)}</h1>
+      {openWindows}
       {/* New and Templates side by side when they are next to each other, each its own section. */}
       {rowsOf(layout.order, layout.folded).map((row) => (row.length === 2
         ? <div key="band" className={row[0] === "new" ? "home-band" : "home-band flip"}>{row.map(section)}</div>

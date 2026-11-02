@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, Window};
 
 use crate::{recent, Picked, MAX_BYTES};
 
@@ -16,12 +16,13 @@ const MOST: usize = 20; // files kept waiting at one time
 const DRAWINGS: [&str; 4] = ["oct", "cdxml", "cdx", "octet"];
 const PICTURES: [&str; 8] = ["png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp"];
 
-// The files waiting for the page, each with the point in the window (CSS pixels) where it was dropped, if it was.
+// The files waiting for a page, each with the window it was dropped on and the point there (CSS pixels), if it was.
 #[derive(Default)]
-pub struct Waiting(Mutex<Vec<(PathBuf, Option<(f64, f64)>)>>);
+pub struct Waiting(Mutex<Vec<(PathBuf, Option<(String, f64, f64)>)>>);
 
-// Files to open, or (with `at`) files dropped on the window. For files to open, the window comes to the front.
-pub fn offer(app: &AppHandle, paths: impl IntoIterator<Item = PathBuf>, at: Option<(f64, f64)>) {
+// Files to open, or (with `at`) files dropped on a window. Files to open go to Home, which opens each drawing in a
+// window of its own; Home comes back if it was closed. A dropped file goes to the window it was dropped on.
+pub fn offer(app: &AppHandle, paths: impl IntoIterator<Item = PathBuf>, at: Option<(String, f64, f64)>) {
     // Files, and the folders of Bruker's processed spectra.
     let paths: Vec<PathBuf> = paths.into_iter().filter(|p| p.is_file() || crate::spectrum::bruker_folder(p).is_some()).take(MOST).collect();
     if paths.is_empty() {
@@ -30,18 +31,22 @@ pub fn offer(app: &AppHandle, paths: impl IntoIterator<Item = PathBuf>, at: Opti
     {
         let waiting = app.state::<Waiting>();
         let mut list = waiting.0.lock().unwrap();
-        list.extend(paths.into_iter().map(|p| (p, at)));
+        list.extend(paths.into_iter().map(|p| (p, at.clone())));
         let over = list.len().saturating_sub(MOST);
         list.drain(..over);
     }
-    if at.is_none() {
-        for window in app.webview_windows().values() {
-            let _ = window.unminimize();
-            let _ = window.show();
-            let _ = window.set_focus();
+    match at {
+        Some((label, ..)) => {
+            let _ = app.emit_to(label, "opened", ());
+        }
+        None => {
+            // Before Octet's first window is there (files named at launch), Home takes them when it starts.
+            if !app.webview_windows().is_empty() {
+                let _ = crate::windows::home(app);
+            }
+            let _ = app.emit_to("main", "opened", ());
         }
     }
-    let _ = app.emit("opened", ());
 }
 
 // The files a launch names: its arguments after the program's own path, read from `cwd`. Options ("-psn_…") are not files.
@@ -65,11 +70,23 @@ pub struct OpenedFile {
 // most) and named, so the page can put it in the project (home.rs); it does not open. A picture comes back as a
 // picture, which the page makes the project's thumbnail (src/thumbs.ts). Other files are refused.
 #[tauri::command]
-pub async fn take_opened(app: AppHandle, picked: State<'_, Picked>, insert: bool, project: Option<bool>) -> Result<Vec<OpenedFile>, String> {
-    let list = std::mem::take(&mut *app.state::<Waiting>().0.lock().unwrap());
+pub async fn take_opened(app: AppHandle, window: Window, picked: State<'_, Picked>, insert: bool, project: Option<bool>) -> Result<Vec<OpenedFile>, String> {
+    // This window's: the files dropped on it, and on Home the files to open.
+    let label = window.label();
+    let list: Vec<_> = {
+        let state = app.state::<Waiting>();
+        let mut waiting = state.0.lock().unwrap();
+        let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut *waiting).into_iter().partition(|(_, at)| match at {
+            Some((l, ..)) => l == label,
+            None => label == "main",
+        });
+        *waiting = rest;
+        mine
+    };
     Ok(list
         .into_iter()
         .map(|(path, at)| {
+            let at = at.map(|(_, x, y)| (x, y));
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let ext = path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).unwrap_or_default();
             if project == Some(true) && at.is_some() && !PICTURES.contains(&ext.as_str()) {
