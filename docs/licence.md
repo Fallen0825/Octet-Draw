@@ -57,12 +57,6 @@ repository is public, so ChemDraw's own code and assets stay out of it.
 - Study ChemDraw only with your own licensed copy.
 - Match its behaviour, workflow logic and keyboard shortcuts freely. Learn
   them by using and testing ChemDraw and from its public documentation.
-- Decompile only for compatibility: CDX and CDXML files, and clipboard
-  formats. Format facts learned this way (tags, meanings, clipboard types)
-  can go into Octet's code, because Octet needs them to read and write
-  ChemDraw files.
-- Keep raw decompiled code, disassembly, REA output and decompiling notes
-  in `~/octet-research/`, outside this repository.
 - Never copy ChemDraw code, icons, templates, documentation text, sample
   files or data. Write our own code.
 - Never touch licence or activation code.
@@ -70,18 +64,10 @@ repository is public, so ChemDraw's own code and assets stay out of it.
 - Do not use "ChemDraw" in Octet's name or logo. Every comparison in
   marketing must be true.
 
-Why raw decompiling notes stay private: UK law (Copyright, Designs and
-Patents Act 1988, section 50B) and EU law (Directive 2009/24/EC, article 6)
-allow decompiling to make an independent program work with ChemDraw's
-files, and allow using what is learned for that purpose. They restrict
-passing the decompiled material on beyond what interoperability needs.
-
 ## Open decisions
 
 - [ ] **Name check.** Make sure "Octet" is free to use as a software
       name before launch.
-- [ ] **IDA Free.** Its licence is for non-commercial use. Check
-      Hex-Rays' terms before using it for Octet. Ghidra has no such limit.
 - [ ] **Funding (optional):** donations, grants, sponsorship, or a paid
       hosted version.
 - [x] **Tech stack.** Decided 14 October 2026: Tauri 2, React,

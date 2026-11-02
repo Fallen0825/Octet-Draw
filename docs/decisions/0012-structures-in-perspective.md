@@ -16,7 +16,7 @@ in perspective. Replaces how Octet drew 3D structures since Structure Perspectiv
 
 ## Decision
 
-Octet follows ChemDraw 26.1 (help, Sam's files, and a decompile for facts; notes in `~/octet-research/notes/
+Octet follows ChemDraw 26.1 (help and Sam's files; notes in `~/octet-research/notes/
 perspective-and-crossing.md`):
 
 - A 3D structure is drawn as a flat one is, at its atoms' x and y (no vanishing point), with every bond style and
@@ -49,4 +49,4 @@ Octet adds three things ChemDraw lacks:
 
 - 3D Clean Up's smaller labels (90 %) and margins (30 %) in ACS 1996 documents: Octet has no per-object margin.
 - `CrossingBonds` in CDXML: ChemDraw writes it but never reads it, so Octet neither reads nor writes it.
-- Six test files to draw in ChemDraw 26.1 to confirm the decompile facts are listed in the research notes.
+- Six test files to draw in ChemDraw 26.1 to confirm these facts are listed in the research notes.

@@ -997,7 +997,7 @@ export function joinOverlaps(m: Mol, moved: Set<number>): { mol: Mol; joined: bo
   return { mol: removeAtoms({ ...m, atoms, bonds, ...(m.fills ? { fills } : {}) }, new Set(into.keys())), joined: true };
 }
 
-// Object > Join (⌘J), as ChemDraw's (decompiled DoJoin and ObjectJoinHandler). One atom in each of two structures:
+// Object > Join (⌘J), as ChemDraw's. One atom in each of two structures:
 // the earlier-drawn atom's structure moves onto the other atom, and the two become one. One atom in each of three or
 // more structures: each structure moves so its atom is at their centroid, and they become one (the first selected
 // atom's, with its label and colour).
@@ -2237,7 +2237,7 @@ export function duplicateSelection(m: Mol, atoms: Set<number>, items: Set<number
   return { mol: r.mol, atoms: r.atoms, items: r.items, ids: r.ids };
 }
 
-// ChemDraw's Synthesis and Retrosynthesis tools (decompiled TrackFragmentation): a line dragged through bonds of a
+// ChemDraw's Synthesis and Retrosynthesis tools: a line dragged through bonds of a
 // structure cuts them. The structure, whole, is copied; the bonds the line crossed are taken out of the original, so it
 // falls into pieces; and the two are laid out as a reaction on one level line with even gaps: Synthesis as the pieces
 // (with plus signs between) and a reaction arrow to the structure, Retrosynthesis as the structure and a

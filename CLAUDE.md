@@ -46,8 +46,7 @@ Octet draws structures itself as SVG. The app icon source is
   its palette, the Object, Curves, Color and Text menus, the context menu,
   its dialogs, and the attributes its CDXML object takes. Run ChemDraw
   26.1 (the baseline, decision 0006) on Sam's Mac and try each one (ask Sam for computer-use access),
-  and decompile it to find options the menus don't show (see "ChemDraw:
-  what we can use" below). Octet gets every option, or Sam gets a list of the ones missing.
+  and read its public documentation. Octet gets every option, or Sam gets a list of the ones missing.
   Never guess and never skip the check.
 
 Colours, fonts, British English, STE and accessibility rules are in
@@ -148,37 +147,20 @@ better, modern way to do it. This repository is public.
   file formats. Functionality and data file formats are not protected by
   copyright (SAS Institute v World Programming, CJEU, 2012). Learn them by
   using and testing ChemDraw, and from its public documentation.
-- Format facts learned by decompiling (CDX/CDXML tags and meanings,
-  clipboard types) can go into Octet's code, because Octet needs them to
-  read and write ChemDraw files.
-- Never put ChemDraw's code, decompiler output, disassembly, REA Evidence,
-  icons, templates, documentation text or sample files in this repository.
-  Write our own code.
-- Keep raw reverse-engineering output and notes in `~/octet-research/` on
-  Sam's Mac.
-- Decompile for file and clipboard compatibility, and to check what
-  ChemDraw can do: its commands, menus, options and object properties
-  (decision 0005). Learn what a feature does, never how ChemDraw codes it,
-  and design Octet's own way. Never touch licence or activation code.
+- Never put ChemDraw's code, icons, templates, documentation text or sample
+  files in this repository. Write our own code.
+- Learn what a feature does, never how ChemDraw codes it, and design
+  Octet's own way.
 - Use only files Sam created as test files. Some of Sam's corpus files
   contain ChemDraw template clip art or third-party pictures: never commit
   those. Keep corpus tests that need them local.
 
-## Reverse-engineering tools (Sam's Mac only)
+## ChemDraw on Sam's Mac
 
-- The REA MCP server is registered for Claude Code on Sam's Mac.
-- Default engine: Ghidra 12.1.4. Pass `provider_id: "ghidra"` to
-  `open_binary`.
-- IDA Free 9.3 reads Intel (x86_64) code only, and its licence is for
-  non-commercial use. Use it only as a second opinion, and only after
-  Sam confirms its licence terms fit. It needs IDA open with the target
-  loaded and Edit → Plugins → MCP started.
 - ChemDraw 26.1.0, the baseline (decision 0006), is at
-  `/Applications/ChemDraw.app`. It is universal (arm64 and x86_64).
-- ChemDraw 22.2.0 is at `/Applications/ChemDraw 22.2.0.app`. Its main
-  executable is x86_64 only.
-- Cloud sessions have no ChemDraw, Ghidra or IDA.
-- Guide: `~/octet-research/REA-GUIDE.md`.
+  `/Applications/ChemDraw.app`.
+- ChemDraw 22.2.0 is at `/Applications/ChemDraw 22.2.0.app`.
+- Cloud sessions have no ChemDraw.
 
 ## Workflow
 

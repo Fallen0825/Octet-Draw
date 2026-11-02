@@ -6,8 +6,7 @@ Online search on, and only when the user presses Return on text nothing offline 
 
 ## ChemDraw 26.1
 
-From the 26.1 help, the decompiled UI (`~/octet-research/notes/name-to-structure-context.md`) and the strings of
-its name library, ChemDraw's Convert Name to Structure reads:
+From the 26.1 help and testing, ChemDraw's Convert Name to Structure reads:
 
 - systematic names, many German names, "alpha" and "beta" forms of amino acids, and some trade names;
 - its list of FDA-approved drugs (973 names), then the user's own dictionary (Structure > Add Structure to

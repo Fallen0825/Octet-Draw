@@ -52,8 +52,7 @@ Open questions for a run of 26.1 are item 19 in `~/octet-research/notes/chemdraw
 
 ## ChemDraw's spectrum object
 
-From the public CDX spec (the Spectrum object, 0x8010, and its properties) and the 26.1 code (format facts only,
-decision 0005):
+From the public CDX spec (the Spectrum object, 0x8010, and its properties) and files saved by 26.1:
 
 - CDXML `<spectrum>` has a BoundingBox, XLow and XSpacing (an even grid), XType (Wavenumbers, Microns, Hertz,
   MassUnits, PartsPerMillion, Other), YType (Absorbance, Transmittance, PercentTransmittance, Other, ArbitraryUnits),
