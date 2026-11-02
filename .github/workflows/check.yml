@@ -83,4 +83,9 @@ jobs:
         shell: bash
         run: |
           app=src-tauri/target/debug/octet
-          if [ "$RUNNER_OS" = Linux ]; then timeout 300 xvfb-run -a "$app"; else timeout 300 "$app"; fi
+          # The Mac has no timeout command: Perl's alarm ends the app after 300 seconds there.
+          case "$RUNNER_OS" in
+            Linux) timeout 300 xvfb-run -a "$app" ;;
+            macOS) perl -e 'alarm 300; exec @ARGV' "$app" ;;
+            *) timeout 300 "$app" ;;
+          esac
