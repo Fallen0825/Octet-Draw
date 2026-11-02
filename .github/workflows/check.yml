@@ -1,5 +1,6 @@
 # Checks on every push and pull request, and before each release (release.yml): the type check, every check file,
-# the Rust tests, and the npm and cargo audits (REL-7, REL-26).
+# the Rust tests, and the npm and cargo audits (REL-7, REL-26). The smoke test starts the real app on Windows, Linux
+# and the Mac and opens a drawing window (src-tauri/src/smoke.rs).
 name: Check
 
 on:
@@ -46,3 +47,40 @@ jobs:
         run: |
           cargo install cargo-audit --locked
           cd src-tauri && cargo audit
+
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [windows-latest, ubuntu-22.04, macos-15-intel]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-${{ github.job }}-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ github.job }}-cargo-
+      - name: Linux libraries for Tauri, and a screen
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf fonts-liberation xvfb
+      - run: npm ci
+      - name: Build the app with the smoke test
+        run: npx tauri build --debug --no-bundle --features smoke
+      - name: Start Octet and open a drawing window
+        shell: bash
+        run: |
+          app=src-tauri/target/debug/octet
+          if [ "$RUNNER_OS" = Linux ]; then timeout 300 xvfb-run -a "$app"; else timeout 300 "$app"; fi

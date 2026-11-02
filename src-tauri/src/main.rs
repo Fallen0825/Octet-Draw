@@ -28,6 +28,8 @@ mod quit;
 mod recent;
 mod recovery;
 mod search;
+#[cfg(feature = "smoke")]
+mod smoke;
 mod spectrum;
 mod update;
 mod vector;
@@ -924,6 +926,8 @@ fn main() {
             let cwd = std::env::current_dir().unwrap_or_default();
             open::offer(handle, open::from_args(std::env::args_os(), &cwd), None);
             crashlog::install(handle);
+            #[cfg(feature = "smoke")]
+            smoke::start(handle.clone());
             quit::install(handle);
             app.manage(recovery::start(handle));
             let (bar, checks, list) = menu(handle, &[], &Default::default(), &HashMap::new(), true)?;

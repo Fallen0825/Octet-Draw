@@ -24,6 +24,13 @@ pub struct Info {
     picture: Option<String>, // the drawing as an SVG, as a recent drawing's (400,000 characters at most)
 }
 
+#[cfg(feature = "smoke")]
+impl Info {
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
 // What each new window is to open, until its page takes it, and what each drawing window shows.
 #[derive(Default)]
 pub struct Windows {

@@ -61,6 +61,10 @@ objc2-web-kit = { version = "0.3", default-features = false, features = ["std", 
 block2 = "0.6"
 
 # https://tauri.app/concept/size/#cargo-configuration
+[features]
+# The smoke test of the real app (src/smoke.rs, check.yml). Never in an installer.
+smoke = []
+
 [profile.release]
 codegen-units = 1
 lto = true
