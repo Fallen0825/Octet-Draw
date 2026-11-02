@@ -41,8 +41,12 @@ pub fn offer(app: &AppHandle, paths: impl IntoIterator<Item = PathBuf>, at: Opti
         }
         None => {
             // Before Octet's first window is there (files named at launch), Home takes them when it starts.
+            // Off the main thread: making Home again there deadlocks on Windows.
             if !app.webview_windows().is_empty() {
-                let _ = crate::windows::home(app);
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = crate::windows::home(&app);
+                });
             }
             let _ = app.emit_to("main", "opened", ());
         }

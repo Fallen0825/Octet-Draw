@@ -63,8 +63,10 @@ fn changed(app: &AppHandle) {
 }
 
 // A new drawing window, a little below and right of the window in front, with what it opens (64 MB at most).
+// The commands that make or show windows are async: on Windows, making a window in a synchronous command (which runs
+// on the main thread) deadlocks, and the app hangs with a white window.
 #[tauri::command]
-pub fn open_window(app: AppHandle, windows: State<'_, Windows>, start: serde_json::Value) -> Result<(), String> {
+pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: serde_json::Value) -> Result<(), String> {
     if start.to_string().len() as u64 > MAX_BYTES + 4096 {
         return Err("This drawing is larger than 64 MB. Octet cannot open it.".into());
     }
@@ -125,7 +127,7 @@ pub fn window_list(windows: State<'_, Windows>) -> Vec<Info> {
 
 // A window from Home's list, in front.
 #[tauri::command]
-pub fn window_show(app: AppHandle, label: String) -> Result<(), String> {
+pub async fn window_show(app: AppHandle, label: String) -> Result<(), String> {
     let window = app.get_webview_window(&label).filter(|_| ours(&label)).ok_or("This window is closed.")?;
     let _ = window.unminimize();
     let _ = window.show();
@@ -134,7 +136,7 @@ pub fn window_show(app: AppHandle, label: String) -> Result<(), String> {
 
 // File > Home from a drawing window: Home in front, opened again if it was closed.
 #[tauri::command]
-pub fn show_home(app: AppHandle) -> Result<(), String> {
+pub async fn show_home(app: AppHandle) -> Result<(), String> {
     home(&app).map_err(|e| e.to_string())
 }
 
