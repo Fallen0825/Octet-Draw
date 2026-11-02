@@ -306,8 +306,8 @@ export const addCharge = (m: Mol, i: number, delta: number) => trimPairs(setAtom
 export type SymbolKind = "plus" | "minus" | "circledPlus" | "circledMinus" | "radical" | "pair" | "partialPlus" | "partialMinus"
   | "radicalCation" | "radicalAnion" | "hDot" | "hDash" | "attach" | "attachDiamond" | "attachStar" | "bead";
 // bar (Option-click with the lone pair, as in ChemDraw): the atom's lone pairs drawn as bars, or as dots again; an
-// atom with none gets one bar.
-export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false): Mol {
+// atom with none gets one bar. bars: Settings > Drawing > Lone pairs as bars, the style an atom's first pair takes.
+export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false, bars = false): Mol {
   const a = m.atoms[i];
   if (kind === "pair" && bar) return a.pairs ? setAtom(m, i, { bars: a.bars ? undefined : true }) : setAtom(m, i, { pairs: 1, bars: true });
   switch (kind) {
@@ -317,7 +317,7 @@ export function addSymbol(m: Mol, i: number, kind: SymbolKind, bar = false): Mol
     }
     case "radical": return trimPairs(setAtom(m, i, { radical: a.radical ? undefined : 1 }), i);
     case "partialPlus": case "partialMinus": { const p = kind === "partialPlus" ? "+" : "-"; return setAtom(m, i, { partial: a.partial === p ? undefined : p }); }
-    case "pair": { const n = (a.pairs ?? 0) + 1; return setAtom(m, i, { pairs: n > Math.max(1, freePairs(m, i)) ? undefined : n }); }
+    case "pair": { const n = (a.pairs ?? 0) + 1; return setAtom(m, i, { pairs: n > Math.max(1, freePairs(m, i)) ? undefined : n, ...(a.pairs ? {} : { bars: bars || undefined }) }); }
     // A radical ion: one unpaired electron and a charge, together. Clicking one again takes both off.
     case "radicalCation": case "radicalAnion": {
       const charge = kind === "radicalCation" ? 1 : -1, on = a.radical === 1 && a.charge === charge;
@@ -348,11 +348,12 @@ export function freePairs(m: Mol, i: number, used = bondOrders(m)[i]): number {
   const h = a.implicitHCount ?? hydrogens(a.label, a.charge ?? 0, used, a.radical);
   return lonePairs(a.label, a.charge ?? 0, Math.ceil(used), h, a.radical);
 }
-// Shows the lone pairs on every heteroatom among these atoms; when they all show already, hides them.
-export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
+// Shows the lone pairs on every heteroatom among these atoms (as bars with `bars`, on an atom that showed none);
+// when they all show already, hides them.
+export function toggleLonePairs(m: Mol, atoms: number[], bars = false): Mol {
   const used = bondOrders(m), hetero = atoms.filter((i) => m.atoms[i].label !== "C" && freePairs(m, i, used[i]) > 0);
   const shown = hetero.every((i) => (m.atoms[i].pairs ?? 0) >= freePairs(m, i, used[i]));
-  return hetero.reduce((acc, i) => setAtom(acc, i, { pairs: shown ? undefined : freePairs(m, i, used[i]) }), m);
+  return hetero.reduce((acc, i) => setAtom(acc, i, shown ? { pairs: undefined } : { pairs: freePairs(m, i, used[i]), ...(m.atoms[i].pairs ? {} : { bars: bars || undefined }) }), m);
 }
 // Single, then double, then triple, then single again. A wedge or hash becomes a plain double, and a quadruple bond
 // single. A hydrogen bond stays one, as in ChemDraw. A bond keeps its place where bonds cross, and its colour and

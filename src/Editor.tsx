@@ -540,9 +540,9 @@ export default function Editor() {
   const [holding, setHolding] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
-  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple,
+  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple, pairBars: settings.pairBars,
     autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen }),
-  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen]);
+  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.pairBars, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -6092,7 +6092,7 @@ export default function Editor() {
       }
     }
     if (command.startsWith("rotate.")) return run(command);
-    if (command === "pairs") return set(toggleLonePairs(doc, [...selection]), true);
+    if (command === "pairs") return set(toggleLonePairs(doc, [...selection], settings.pairBars), true);
     if (context.kind === "atom") {
       const i = ids[0], [kind, arg] = command.split(".");
       if (kind === "element") return set(setElement(doc, i, arg), true);
@@ -6226,7 +6226,7 @@ export default function Editor() {
     }
     if (tool === "chain") return chainClick(t.atom ?? at, false);
     // Option-click with the lone pair draws the atom's lone pairs as bars (or as dots again), as in ChemDraw.
-    if (tool === "symbol") return t.atom !== undefined ? set(addSymbol(doc, t.atom, symbolKind, pressAlt.current)) : undefined;
+    if (tool === "symbol") return t.atom !== undefined ? set(addSymbol(doc, t.atom, symbolKind, pressAlt.current, settings.pairBars)) : undefined;
     if (tool === "bracket" && "mark" in bracketPick) {
       // A dagger goes on a bracket clicked (again takes it off), or stands alone where clicked.
       const sh = t.arrow !== undefined ? doc.shapes?.find((x) => x.id === t.arrow && isBracket(x)) : undefined;
