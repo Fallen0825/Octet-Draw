@@ -62,6 +62,7 @@ export type Settings = {
   // ChemDraw's Object > Fixed Lengths and Fixed Angles: a dragged bond, ring or arrow is one bond length long and at a
   // 15° step (Option frees it while it is held). sproutRings: ChemDraw's "Sprout Rings Instead of Spiro When Clicking".
   fixedLengths: boolean; fixedAngles: boolean; sproutRings: boolean;
+  clickTriple: boolean; // a bond tool's click on a plain double bond makes it triple, and on a triple single (ChemDraw's clicks move the second line)
   // ChemDraw's preferences (CH-34). autoMap: Automatic Reaction Mapping (a pair mapped with the Atom map tool maps the
   // rest of its reaction). stereoParens: Include Parentheses When Showing Stereochemistry. hideAbs: Hide Absolute
   // Stereoflags. mdlFlags: Show Stereoflags When Opening MDL Format Files (the chiral flag as abs or &1 flags).
@@ -72,7 +73,7 @@ export type Settings = {
 export type Swatch = { name: string; hex: string };
 export type RulerUnit = "mm" | "cm" | "in" | "pt" | "pc";
 export const RULER_UNITS: [RulerUnit, string][] = [["mm", "Millimetres"], ["cm", "Centimetres"], ["in", "Inches"], ["pt", "Points"], ["pc", "Picas"]];
-const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, homeLayout: readLayout([], []), updates: true, warnings: true, warningTypes: {}, checkCopy: false, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "" };
+const DEFAULTS: Settings = { snap: true, snapGrid: false, guides: { grid: false, rulers: false, crosshair: false }, rulerUnit: "mm", eraser: 0.15, keys: {}, variants: { select: "box", bond: "single", ring: "benzene", template: "lib:Alanine", symbol: "plus", orbital: "p-shaded", arrow: "reaction", cycle: "circle", shape: "box-plain", bracket: "brackets", more: "tlc" }, strips: {}, actions: true, templates: [], pinned: [], actionLayout: {}, layoutVersion: 3, folded: [], panelMenus: false, captionOptionReturn: false, userName: null, tutorialDone: false, homeLayout: readLayout([], []), updates: true, warnings: true, warningTypes: {}, checkCopy: false, lastSeen: 0, purpose: QUICK, purposeStyles: {}, ownPurposes: [], files: DEFAULT_FILES, settingsModule: "document", curvedArrows: ["curved-120", "fishhook-120"], libraryRings: [], palettes: [], librarySize: "medium", dictionary: [], templateSets: [], nameHistory: [], paletteWide: false, palette: [], elementColours: {}, properties: false, propertyRows: ["formula", "weight"], nmrMhz: 400, nmrSolvent: "CDCl₃", nmrSolventPeaks: true, nmrDetails: false, massSpec: MS_DEFAULTS, scaleLabels: true, onlineSearch: true, fixedLengths: true, fixedAngles: true, sproutRings: false, clickTriple: false, interpretation: false, autoMap: true, stereoParens: true, hideAbs: false, mdlFlags: false, aromaticOnOpen: "" };
 const KEY = "octet.settings";
 
 export function loadSettings(): Settings {
@@ -110,7 +111,7 @@ export function loadSettings(): Settings {
       nmrSolventPeaks: saved.nmrSolventPeaks !== false,
       nmrDetails: saved.nmrDetails === true,
       massSpec: readMsPrefs(saved.massSpec),
-      fixedLengths: saved.fixedLengths !== false, fixedAngles: saved.fixedAngles !== false, sproutRings: saved.sproutRings === true,
+      fixedLengths: saved.fixedLengths !== false, fixedAngles: saved.fixedAngles !== false, sproutRings: saved.sproutRings === true, clickTriple: saved.clickTriple === true,
       autoMap: saved.autoMap !== false, stereoParens: saved.stereoParens !== false, hideAbs: saved.hideAbs === true, mdlFlags: saved.mdlFlags === true,
       aromaticOnOpen: saved.aromaticOnOpen === "kekule" || saved.aromaticOnOpen === "circles" ? saved.aromaticOnOpen : "",
       scaleLabels: saved.scaleLabels !== false,

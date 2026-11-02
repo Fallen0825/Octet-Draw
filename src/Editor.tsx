@@ -531,9 +531,9 @@ export default function Editor() {
   const [holding, setHolding] = useState<{ n: number; x: number; y: number }>();
   const [cursor, setCursor] = useState<string>();
   const [settings, setSettings] = useState(loadSettings);
-  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings,
+  const drawingPrefs = useMemo(() => ({ fixedLengths: settings.fixedLengths, fixedAngles: settings.fixedAngles, sproutRings: settings.sproutRings, clickTriple: settings.clickTriple,
     autoMap: settings.autoMap, stereoParens: settings.stereoParens, hideAbs: settings.hideAbs, mdlFlags: settings.mdlFlags, aromaticOnOpen: settings.aromaticOnOpen }),
-  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen]);
+  [settings.fixedLengths, settings.fixedAngles, settings.sproutRings, settings.clickTriple, settings.autoMap, settings.stereoParens, settings.hideAbs, settings.mdlFlags, settings.aromaticOnOpen]);
   // What this drawing shows over its page (View > Show Grid, Show Rulers, Show Crosshair). Not an edit: no undo step.
   const [guides, setGuides] = useState<Guides>({});
   // Where the pointer is (drawing coordinates), for the rulers' marks.
@@ -6141,8 +6141,9 @@ export default function Editor() {
         return set(after);
       }
       if (t.bond === undefined) return set(sprout(doc, at, bondSpec));
-      // On a bond, as ChemDraw: see clickBond (a single bond becomes double, a double bond's second line moves round).
-      return set(clickBond(doc, t.bond, bondSpec, at, drawnSide(t.bond)));
+      // On a bond, as ChemDraw: see clickBond (a single bond becomes double, a double bond's second line moves round,
+      // or with Settings > Drawing > Clicks make triple bonds, becomes triple).
+      return set(clickBond(doc, t.bond, bondSpec, at, drawnSide(t.bond), settings.clickTriple));
     }
     if (tool === "chain") return chainClick(t.atom ?? at, false);
     // Option-click with the lone pair draws the atom's lone pairs as bars (or as dots again), as in ChemDraw.

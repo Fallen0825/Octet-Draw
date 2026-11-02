@@ -357,7 +357,39 @@ export function toggleLonePairs(m: Mol, atoms: number[]): Mol {
 // Single, then double, then triple, then single again. A wedge or hash becomes a plain double, and a quadruple bond
 // single. A hydrogen bond stays one, as in ChemDraw. A bond keeps its place where bonds cross, and its colour and
 // highlight. A new bond style replaces a query bond type (Any, S/D); the bond's topology and reaction centre stay.
-const respec = (m: Mol, i: number, spec: BondSpec): Mol => ({ ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...makeBond(b.atoms, spec), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}) } : b)) });
+const respec = (m: Mol, i: number, spec: BondSpec): Mol => {
+  const was = m.bonds[i].type;
+  m = { ...m, bonds: m.bonds.map((b, k) => (k === i ? { ...makeBond(b.atoms, spec), ...(b.colour ? { colour: b.colour } : {}), ...(b.halo ? { halo: b.halo } : {}), ...(b.topology ? { topology: b.topology } : {}), ...(b.rxn ? { rxn: b.rxn } : {}) } : b)) };
+  return spec.type === 3 && was !== 3 ? straighten(m, i) : m;
+};
+// A triple bond's atoms are sp, so linear (Sam, 2 November 2026). When bond k becomes triple, an atom of it with one
+// other bond has that bond swung into line, opposite the triple bond, and everything beyond it with it. The smaller
+// side moves. An atom in a ring, or with more bonds, is left as it is.
+function straighten(m: Mol, k: number): Mol {
+  for (const end of [0, 1]) {
+    const a = m.bonds[k].atoms[end], b = m.bonds[k].atoms[1 - end], others = neighbours(m, a).filter((j) => j !== b);
+    if (others.length !== 1) continue;
+    const n = others[0], beyond = reach(m, n, a), near = reach(m, b, a);
+    if (beyond.has(b)) continue; // a ring
+    const here = pos(m, a), want = sub(here, pos(m, b)), now = sub(pos(m, n), here);
+    let turn = Math.atan2(cross(now, want), dot(now, want));
+    if (Math.abs(turn) < 1e-6) continue;
+    const move = beyond.size <= near.size ? beyond : near;
+    if (move === near) turn = -turn;
+    m = { ...m, atoms: m.atoms.map((x, i) => {
+      if (!move.has(i)) return x;
+      const r = add(here, rot(sub(pos(m, i), here), turn));
+      return { ...x, location: [r[0], r[1], x.location[2] ?? 0], ...turnMarks(x, (t) => t + turn / deg) };
+    }) };
+  }
+  return m;
+}
+// The atoms bonded, step by step, to atom i without passing through atom not.
+function reach(m: Mol, i: number, not: number): Set<number> {
+  const seen = new Set([i]), todo = [i];
+  while (todo.length) for (const j of neighbours(m, todo.pop()!)) if (j !== not && !seen.has(j)) { seen.add(j); todo.push(j); }
+  return seen;
+}
 export const cycleBond = (m: Mol, i: number) => {
   const b = m.bonds[i];
   return b.type === HBOND ? m : respec(m, i, { type: b.type === QUADRUPLE ? 1 : b.stereo || b.display ? 2 : (b.type % 3) + 1 });
@@ -411,8 +443,10 @@ export function nextSide(m: Mol, k: number, side: number): "left" | "centre" | "
 //   has that style: Solid gives a plain double, Bold a bold double, Dashed a dashed double and then an aromatic one,
 //   Wavy a double either. The Dative tool makes a single dative bond. The wedge tools leave it as it is.
 // - On a triple bond a single bond tool sets its single bond.
-export function clickBond(m: Mol, k: number, spec: BondSpec, at: P, side = 0): Mol {
+// - With triple (Settings > Drawing > Clicks make triple bonds), the Solid tool on a plain double bond makes it triple.
+export function clickBond(m: Mol, k: number, spec: BondSpec, at: P, side = 0, triple = false): Mol {
   const b = m.bonds[k], cycle = () => setPosition(m, k, nextSide(m, k, side));
+  if (triple && b.type === 2 && !b.display && !b.stereo && spec.type === 1 && !spec.display && !spec.stereo) return setBondSpec(m, k, { type: 3 });
   if (b.type === 10) return m; // a hydrogen bond (KET's type 10) stays as it is, as in ChemDraw
   if (spec.type > 1) return spec.type === 2 && sameStyle(b, spec) ? cycle() : sameStyle(b, spec) ? m : setBondSpec(m, k, spec);
   if (b.type === 1) {

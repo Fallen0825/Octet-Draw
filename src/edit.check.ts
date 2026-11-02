@@ -1,6 +1,6 @@
 // Run: node src/edit.check.ts. Fails loudly if an editing rule breaks.
 import assert from "node:assert/strict";
-import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced } from "./edit.ts";
+import { EMPTY, LARGE, bondOrders, freePairs, addCaption, addTemplate, normalise, addChair, addGroup, nextNumber, addRing, alignFragments, atomsInPolygon, flipAtoms, atomAt, atomsIn, bondTo, chainTo, complete, flipBond, rotateAtoms, setBondSpec, cycleBond, deleteAtom, deleteAtoms, deleteBond, erase, fragments, joinOverlaps, merge, moveAtoms, nextDirection, onSelection, pos, setElement, sprout, subset, levelTurn, newTable, resizeTable, setTableCell, expandLabel, contractLabel, spliceTable, sizeTable, fitTable, clearTable, pairMap, clearMap, tiltAtoms, turnAboutBond, flattenAtoms, hingeOf, duplicateSelection, extractSelection, insertMol, inRing, ringBonds, markDirections, neighbours, extent, stack, wholeGroups, wholeIntegral, groupSelection, addArrow, addShape, addCycle, ungroupSelection, groupParents, groupTargets, groupsOf, outermost, selectedGroups, tidyGroups, deleteGraphics, pivotOf, addGroupAt, type Group, walkHot, jumpHot, farBond, keepHot, transformParts, splitCurve, nearestOnCurve, moveCurvePoint, removeCurvePoint, appendCurvePoint, nextGroup, setEnhanced, clickBond } from "./edit.ts";
 import { curvePath, inDrawn, inShape, settleShape, shapeBounds, shapeCorners, tableLayout, type Mol, type Shape } from "./render.ts";
 import { distToPath } from "./hit.ts";
 const sub = (a: number[], b: number[]) => [a[0] - b[0], a[1] - b[1]], cross = (a: number[], b: number[]) => a[0] * b[1] - a[1] * b[0];
@@ -849,4 +849,22 @@ console.log("edit.check: align ok");
   const full: Mol = { ...g, atoms: Array.from({ length: 99 }, (_, k) => ({ label: "C", location: [k, 0, 0] as [number, number, number], enhanced: `&${k + 1}` })) };
   assert.equal(nextGroup(full, full.atoms.map((_, k) => k), "&"), 99);
   console.log("edit.check: enhanced stereo groups ok");
+}
+
+// A bond made triple straightens its chain: both its atoms are sp, so linear. Clicks follow ChemDraw (the second line
+// moves) unless Clicks make triple bonds is on, when a plain double becomes triple and a triple single.
+{
+  const angleAt = (m: Mol, a: number, b: number, c: number) => {
+    const u = sub(pos(m, a), pos(m, b)), v = sub(pos(m, c), pos(m, b));
+    return Math.round((Math.acos((u[0] * v[0] + u[1] * v[1]) / Math.hypot(u[0], u[1]) / Math.hypot(v[0], v[1])) * 180) / Math.PI);
+  };
+  let chain = sprout(EMPTY, [0, 0]);
+  for (const i of [1, 2, 3, 4]) chain = sprout(chain, i);
+  const made = setBondSpec(chain, 2, { type: 3 });
+  assert.deepEqual([angleAt(made, 1, 2, 3), angleAt(made, 2, 3, 4)], [180, 180]);
+  const S = { type: 1 }, at: [number, number] = [0, 0];
+  assert.equal(clickBond(clickBond(chain, 2, S, at), 2, S, at).bonds[2].type, 2);
+  const two = clickBond(clickBond(chain, 2, S, at, 0, true), 2, S, at, 0, true);
+  assert.equal(two.bonds[2].type, 3);
+  assert.equal(clickBond(two, 2, S, at, 0, true).bonds[2].type, 1);
 }
