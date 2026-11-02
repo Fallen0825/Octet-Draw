@@ -205,3 +205,21 @@ assert.equal(empty.cycles?.[0]?.nodes.length, 0);
 }
 
 console.log("cycle tool ok");
+
+// Tobias, 2 November 2026: a structure as a reagent or product. Its arrow runs between the arc and the structure, on
+// the step beside it, and follows it. It survives a save, and deleting the structure takes it off.
+{
+  // Two intermediates (top and bottom of a circle of radius 3), a reagent structure outside the right-hand step.
+  const atom = (x: number, y: number, label = "C") => ({ label, location: [x, y, 0] as [number, number, number] });
+  let x: Mol = { atoms: [atom(0, 3, "Pd"), atom(0, -3, "Pd"), atom(5, 0.5), atom(5.8, 0.5)], bonds: [{ atoms: [2, 3], type: 1 }] };
+  [x] = addCycle(x, { centre: [0, 0], radius: 3, clockwise: true, nodes: [[0], [1]], sides: [{ atoms: [2, 3], side: "in" }] });
+  const lay = (y: Mol) => layoutCycles(y, L, 1, ink(y)).arrows;
+  const side = lay(x).find((a) => a.end === "none")!;
+  assert.ok(side && side.step === 0, "the reagent's arrow is on the step beside it, with no head");
+  assert.ok(side.from[0] > 3 && side.from[0] < 5, "it starts just outside the structure, towards the arc");
+  const out = { ...x, cycles: [{ ...x.cycles![0], sides: [{ atoms: [2, 3], side: "out" as const }] }] };
+  assert.ok(lay(out).some((a) => a.to[0] > 3 && a.end !== "none" && a.step === 0), "a product's arrow leaves the arc for it");
+  const back = readOct(writeOct(x, DEFAULT_STYLE)).mol;
+  assert.deepEqual(back.cycles![0].sides, [{ atoms: [2, 3], side: "in" }], "saved");
+  assert.equal(deleteAtoms(x, new Set([2, 3])).cycles![0].sides, undefined, "gone with its structure");
+}

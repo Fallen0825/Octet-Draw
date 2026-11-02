@@ -3306,6 +3306,16 @@ export default function Editor() {
       return openWriting({ value: "", cycle: { cycle: c.id, step: what === "centre" ? 0 : cycleStep, side: what }, style: { ...textStyle, ...(what === "name" ? { italic: true } : {}) } });
     }
   }
+  // A structure as a cycle's reagent or product (src/cycle.ts, sides), or taken off when it is that already.
+  function sideStructure(atom: number, side: "in" | "out") {
+    const atoms = fragments(doc).find((g) => g.includes(atom)) ?? [atom], b = inkOf(atoms), cycles = doc.cycles ?? [];
+    if (!cycles.length || !b) return setNotice("Draw a catalytic cycle first.", "info");
+    if (cycles.some((c) => c.nodes.some((n) => n.some((i) => atoms.includes(i))))) return setNotice("This structure is an intermediate of the cycle.", "info");
+    const mid: P = [(b[0] + b[2]) / 2 / L, -(b[1] + b[3]) / 2 / L], far = (c: Cycle) => Math.abs(Math.hypot(mid[0] - c.centre[0], mid[1] - c.centre[1]) - c.radius);
+    const near = cycles.reduce((p, q) => (far(q) < far(p) ? q : p)), was = cycles.flatMap((c) => c.sides ?? []).find((x) => x.atoms.includes(atom));
+    const off = (c: Cycle): Cycle => { const sides = (c.sides ?? []).filter((x) => !x.atoms.some((i) => atoms.includes(i))); const { sides: _, ...rest } = c; return sides.length ? { ...rest, sides } : rest; };
+    set({ ...doc, cycles: cycles.map((c) => { const k = off(c); return c.id === near.id && was?.side !== side ? { ...k, sides: [...(k.sides ?? []), { atoms, side }] } : k; }) }, true);
+  }
   // The Cycle tool. A new cycle drawn from its centre out to a point, turning clockwise, with no nodes yet.
   function newCycle(centre: P, to: P): Omit<Cycle, "id"> {
     return { centre, radius: Math.max(0.5, Math.hypot(to[0] - centre[0], to[1] - centre[1])), clockwise: true, nodes: [], at: [] };
@@ -3314,9 +3324,12 @@ export default function Editor() {
   const circleAt = (p: P) => (doc.cycles ?? []).find((c) => Math.abs(Math.hypot(p[0] - c.centre[0], p[1] - c.centre[1]) - c.radius) * L * views.get().zoom < 8);
   // A drag draws a circle, and structures already on it join it. A click on a circle breaks it there (or joins it up
   // again at a break); a click away from any circle draws one three bond lengths across. Reagent in, Product out and
-  // Step name: a click on a step of a circle adds that text there, or edits the text already there.
+  // Step name: a click on a step of a circle adds that text there, or edits the text already there. Reagent in or
+  // Product out on a structure makes the structure that, on the nearest cycle; a second click takes it off again.
   function releaseCycle(from: P, to?: P) {
     const c = circleAt(from);
+    const h = !c && (cycleChoice === "in" || cycleChoice === "out") ? hit(from) : {}, atom = h.atom ?? (h.bond !== undefined ? doc.bonds[h.bond]?.atoms[0] : undefined);
+    if (atom !== undefined) return sideStructure(atom, cycleChoice as "in" | "out");
     if (cycleChoice !== "circle") {
       if (!c) return setNotice("Click a catalytic cycle's circle.", "info");
       const side = cycleChoice as "in" | "out" | "name", step = stepAt(doc, c, angleAbout(c, from)), there = doc.captions?.find((x) => x.cycle?.cycle === c.id && x.cycle.step === step && x.cycle.side === side);

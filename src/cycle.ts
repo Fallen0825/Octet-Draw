@@ -9,7 +9,18 @@ import type { Arrow, Box, Caption, Mol } from "./render.ts";
 // with no atoms is a break the user clicked on the circle, or a piece of text (a caption on that node); a node whose
 // atoms all go becomes a break. A drawn cycle can have any number of nodes (none is a whole circle).
 // gap: the clear space between an arc's ends and an intermediate, in points; unset is GAP_PT.
-export type Cycle = { id: number; centre: [number, number]; radius: number; clockwise: boolean; nodes: number[][]; at?: number[]; colour?: string; order?: number; scale?: number; width?: number; gap?: number };
+// sides: structures drawn as a reagent coming in or a product going out (Tobias, 2 November 2026). Each is on the step
+// its middle is beside, and its arrow runs between the arc and the structure, wherever the structure is moved.
+export type CycleSide = { atoms: number[]; side: "in" | "out" };
+export type Cycle = { id: number; centre: [number, number]; radius: number; clockwise: boolean; nodes: number[][]; at?: number[]; colour?: string; order?: number; scale?: number; width?: number; gap?: number; sides?: CycleSide[] };
+// A cycle with its structures' atoms renumbered by `to` (undefined: the atom went). A structure with no atoms left
+// is no longer a reagent or product.
+export function mapSides(c: Cycle, to: (i: number) => number | undefined): Cycle {
+  if (!c.sides) return c;
+  const sides = c.sides.map((s) => ({ ...s, atoms: s.atoms.map(to).filter((i): i is number => i !== undefined) })).filter((s) => s.atoms.length);
+  const { sides: _, ...rest } = c;
+  return sides.length ? { ...rest, sides } : rest;
+}
 // A cycle's caption: its centre label; the reagent coming in, the product going out or the name of a step (node k to
 // k + 1); or an intermediate written as text (side "node": step is the node).
 // at: where along its step a side arrow's outer end (or a step's name) is (0 at the step's start, 1 at its end);
@@ -133,6 +144,29 @@ export function layoutCycles(m: Mol, k: number, pt: number, ink: (atoms: number[
         const anchor = cx > 0.35 ? "start" : cx < -0.35 ? "end" : "middle";
         out.anchors.set(cap.id, { x: textAt[0], y: textAt[1] + (sy > 0.35 ? 10 : sy < -0.35 ? -2 : 3.5) * f * pt, anchor });
       }
+    }
+    // Structures as reagents and products: each on the step beside its middle, with an arrow from where it is to the
+    // arc (a reagent's, with no head) or from the arc to it (a product's).
+    for (const sd of c.sides ?? []) {
+      const b = ink(sd.atoms);
+      if (!b) continue;
+      const mid: P = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], a = Math.atan2(mid[1] - centre[1], mid[0] - centre[0]);
+      const span = out.spans.find((x) => { if (x.cycle !== c.id) return false; let d = x.dir * (a - x.a0); while (d < 0) d += 2 * Math.PI; return d >= x.from && d <= x.to; });
+      if (!span) continue;
+      let d = span.dir * (a - span.a0);
+      while (d < 0) d += 2 * Math.PI;
+      const g = (d - span.from) / (span.to - span.from), w = Math.min(0.2, 0.6 / (span.to - span.from));
+      const along = (q: number, r = R) => at(span.a0 + span.dir * (span.from + (span.to - span.from) * q), r);
+      const onArc = along(Math.min(0.95, Math.max(0.05, sd.side === "in" ? g + w : g - w)));
+      // The arrow's outer end: from the structure's middle towards the arc, just clear of its ink.
+      const len = Math.hypot(onArc[0] - mid[0], onArc[1] - mid[1]) || 1, u: P = [(onArc[0] - mid[0]) / len, (onArc[1] - mid[1]) / len];
+      let t = 0;
+      while (t < len && mid[0] + u[0] * t > b[0] - gap && mid[0] + u[0] * t < b[2] + gap && mid[1] + u[1] * t > b[1] - gap && mid[1] + u[1] * t < b[3] + gap) t += 0.5;
+      if (len - t < 2 * gap) continue; // the structure touches the arc: no room for an arrow
+      const end: P = [mid[0] + u[0] * t, mid[1] + u[1] * t], r = Math.hypot(end[0] - centre[0], end[1] - centre[1]);
+      const [p, q] = sd.side === "in" ? [end, onArc] : [onArc, end];
+      const bulge = along((Math.min(0.95, Math.max(0.05, g)) + Math.min(0.95, Math.max(0.05, sd.side === "in" ? g + w : g - w))) / 2, R + (r - R) * 0.68);
+      out.arrows.push({ id: next--, kind: "curved", from: toDoc(p), to: toDoc(q), bend: bendFor(p, q, bulge) * 0.6, cycle: c.id, step: span.step, ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...own, ...(c.width ? { width: c.width } : {}), ...(sd.side === "in" ? { end: "none" as const } : {}) });
     }
     for (const cap of m.captions ?? []) if (cap.cycle?.cycle === c.id && cap.cycle.side === "centre") out.anchors.set(cap.id, { x: centre[0], y: centre[1] + 3.5 * f * pt, anchor: "middle" });
   }

@@ -1,7 +1,7 @@
 // Editing operations on a drawing. Each returns a new Mol and leaves the old one alone, so undo is a list of Mols.
 // Coordinates are in bond lengths with y up, the same as KET.
 import { AROMATIC, HBOND, H_FIRST, hydrogens, lonePairs, orderOf, QUADRUPLE, settleShape, tableLayout, tableRow, type Arrow, type Atom, type Bond, type Box, type Caption, type Curve, type Kept, type CurvePoint, type Mol, type Shape, type Spot, type Table } from "./render.ts";
-import { keepAngles, type Cycle } from "./cycle.ts";
+import { keepAngles, mapSides, type Cycle } from "./cycle.ts";
 import { anchorElement, isElement, labelSmiles } from "./labels.ts";
 import type { DocStyle } from "./docstyle.ts";
 import { aromaticAtoms, rings as ringsOf } from "./rings.ts";
@@ -527,9 +527,10 @@ function removeAtoms(m: Mol, gone: Set<number>): Mol {
   // A cycle keeps the intermediates that still have atoms; with fewer than two it is no longer a cycle. A cycle drawn
   // with the Cycle tool keeps every node: one whose atoms all went is a break where it was.
   const cycles = m.cycles?.flatMap((c) => {
-    if (c.at) return [{ ...keepAngles(m, c), nodes: c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)) }];
+    const sided = mapSides(c, (i) => map.get(i));
+    if (c.at) return [{ ...keepAngles(m, sided), nodes: c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)) }];
     const nodes = c.nodes.map((n) => n.filter((i) => map.has(i)).map((i) => map.get(i)!)).filter((n) => n.length);
-    return nodes.length >= 2 ? [{ ...c, nodes }] : [];
+    return nodes.length >= 2 ? [{ ...sided, nodes }] : [];
   });
   const keptCycles = new Set(cycles?.map((c) => c.id));
   return tidyGroups({ ...m, atoms, bonds: bonds.map((b) => ({ ...b, atoms: [map.get(b.atoms[0])!, map.get(b.atoms[1])!] })), captions: captions?.filter((c) => !c.cycle || keptCycles.has(c.cycle.cycle)), cycles,
@@ -2011,7 +2012,7 @@ function withObjects(m: Mol, t: Mol, ids: number[], f: (q: P) => P, k: number, m
       ...(c.on ? { on: { ...c.on, arrow: to.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: to.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}) }))] } : {}),
     ...(t.arrows?.length ? { arrows: [...(m.arrows ?? []), ...t.arrows.map((a) => ({ ...a, id: to.get(a.id)! }))] } : {}),
     ...(t.shapes?.length ? { shapes: [...(m.shapes ?? []), ...t.shapes.map((x) => ({ ...x, id: to.get(x.id)! }))] } : {}),
-    ...(t.cycles?.length ? { cycles: [...(m.cycles ?? []), ...t.cycles.map((c) => ({ ...c, id: to.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))] } : {}),
+    ...(t.cycles?.length ? { cycles: [...(m.cycles ?? []), ...t.cycles.map((c) => ({ ...mapSides(c, atom), id: to.get(c.id)!, nodes: c.nodes.map((n) => n.map(atom)) }))] } : {}),
     ...(t.groups?.length ? { groups: [...(m.groups ?? []), ...t.groups.map((g) => ({ ...g, id: to.get(g.id)!, atoms: g.atoms.map(atom), items: g.items.map((x) => to.get(x) ?? x) }))] } : {}),
     ...(t.fills?.length ? { fills: [...(m.fills ?? []), ...t.fills.map((x) => ({ ...x, atoms: x.atoms.map(atom) }))] } : {}),
   };
@@ -2187,7 +2188,7 @@ export function extractSelection(m: Mol, atoms: Set<number>, items: Set<number>,
       return copied({ ...free, x, y });
     }),
     arrows, shapes: (m.shapes ?? []).filter((x) => items.has(x.id)).map(copied),
-    cycles: cycles.map((c) => ({ ...c, nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
+    cycles: cycles.map((c) => ({ ...mapSides(c, (i) => map.get(i)), nodes: c.nodes.map((n) => n.map((i) => map.get(i)!)) })),
     groups: (m.groups ?? []).filter((g) => g.atoms.every((i) => map.has(i)) && g.items.every((id) => ids.has(id))).map((g) => ({ ...g, atoms: g.atoms.map((i) => map.get(i)!) })),
     fills: refill(m.fills, map),
     grids: (m.grids ?? []).filter((g) => keep.has(g.arrow)),
@@ -2210,7 +2211,7 @@ export function insertMol(m: Mol, add: Mol, offset: P = [0, 0]) {
     arrows: [...(m.arrows ?? []), ...(add.arrows ?? []).map((a) => ({ ...a, id: ids.get(a.id)!, from: by(a.from), to: by(a.to),
       ...(a.curve ? { curve: { ...a.curve, points: a.curve.points.map((q) => ({ at: by(q.at), ...(q.c1 ? { c1: by(q.c1) } : {}), ...(q.c2 ? { c2: by(q.c2) } : {}) })) } } : {}) }))],
     shapes: [...(m.shapes ?? []), ...(add.shapes ?? []).map((x) => remapKept({ ...x, id: ids.get(x.id)!, from: by(x.from), to: by(x.to) }, at))],
-    cycles: [...(m.cycles ?? []), ...(add.cycles ?? []).map((c) => ({ ...c, id: ids.get(c.id)!, centre: by(c.centre), nodes: c.nodes.map((n) => n.map(at)) }))],
+    cycles: [...(m.cycles ?? []), ...(add.cycles ?? []).map((c) => ({ ...mapSides(c, at), id: ids.get(c.id)!, centre: by(c.centre), nodes: c.nodes.map((n) => n.map(at)) }))],
     captions: [...(m.captions ?? []), ...(add.captions ?? []).map((c) => remapKept({
       ...c, id: ids.get(c.id)!, x: c.x + offset[0], y: c.y + offset[1], ...(c.under ? { under: c.under.map(at) } : {}),
       ...(c.on ? { on: { ...c.on, arrow: ids.get(c.on.arrow) ?? c.on.arrow } } : {}), ...(c.cycle ? { cycle: { ...c.cycle, cycle: ids.get(c.cycle.cycle) ?? c.cycle.cycle } } : {}),

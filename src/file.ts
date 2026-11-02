@@ -4,6 +4,7 @@ import { normalise, plainOf, type TextRun } from "./richtext.ts";
 import { rings } from "./rings.ts";
 import { MAX_ANNOTATIONS, MAX_CONTENT, MAX_KEYWORD, OWN_BOND_ATTRS, PROPERTY_ATTRS, readPictureData } from "./cdxml.ts";
 import { tidyGroups } from "./edit.ts";
+import type { CycleSide } from "./cycle.ts";
 import { readAtomQuery, readBondQuery, readPolymer, readRgroup } from "./query.ts";
 import { ALL_ARROW_KINDS, HBOND, isBracket, ORBITAL_SHAPES, QUADRUPLE, PHASES, SHAPE_KINDS, type Annotation, type CurveFill, type Head, type HeadShape, type Arrow, type ArrowKind, type LineStyle, type OrbitalShape, type Phase, type Shape, type ShapeKind, type Shade, type Curve, type Table, type TableLine, type CellAlign, type Tlc, type Atom, type Bond, type Caption, type Display, type Kept, type Mol, type HeadSize } from "./render.ts";
 import { readGrid } from "./stoich.ts";
@@ -30,7 +31,7 @@ export function serialize(mol: Mol): string {
   // by its place in the list.
   const arrowList = [...(mol.arrows ?? [])];
   const cycleList = [...(mol.cycles ?? [])].sort((a, b) => a.id - b.id);
-  const cycles = cycleList.map((c) => ({ x: round(c.centre[0]), y: round(c.centre[1]), radius: round(c.radius), ...(c.clockwise ? {} : { anticlockwise: true }), nodes: c.nodes, ...(c.at ? { at: c.at.map(round) } : {}), ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...(c.width ? { width: c.width } : {}), ...(c.gap !== undefined ? { gap: c.gap } : {}), ...scaled(c) }));
+  const cycles = cycleList.map((c) => ({ x: round(c.centre[0]), y: round(c.centre[1]), radius: round(c.radius), ...(c.clockwise ? {} : { anticlockwise: true }), nodes: c.nodes, ...(c.at ? { at: c.at.map(round) } : {}), ...(c.colour ? { colour: c.colour } : {}), ...(c.order ? { order: c.order } : {}), ...(c.width ? { width: c.width } : {}), ...(c.gap !== undefined ? { gap: c.gap } : {}), ...(c.sides ? { sides: c.sides } : {}), ...scaled(c) }));
   const arrows = arrowList.map((a) => ({ kind: a.kind, x1: round(a.from[0]), y1: round(a.from[1]), x2: round(a.to[0]), y2: round(a.to[1]), ...(a.bend ? { bend: round(a.bend) } : {}),
     ...(a.style ? { style: a.style } : {}), ...(a.orbital ? { orbital: a.orbital } : {}), ...(a.colour ? { colour: a.colour } : {}),
     ...(a.start ? { start: a.start } : {}), ...(a.end ? { end: a.end } : {}), ...(a.head ? { head: a.head } : {}), ...(a.curve ? { curve: a.curve } : {}), ...(a.fill ? { fill: a.fill } : {}), ...(a.order ? { order: a.order } : {}), ...(a.width ? { width: a.width } : {}),
@@ -291,7 +292,9 @@ export function parse(text: string): Mol {
       const nodes = c?.nodes as unknown[], at = Array.isArray(c?.at) && c.at.length === nodes?.length && c.at.every(num) ? (c.at as number[]) : undefined;
       if (!num(c?.x) || !num(c.y) || !num(c.radius) || (c.radius as number) <= 0 || !Array.isArray(nodes) || (!at && nodes.length < 2) || nodes.length > 64
         || !nodes.every((n) => Array.isArray(n) && (at || n.length > 0) && n.every((i) => int(i, 0, out.atoms.length - 1))) || badColour(c.colour) || badWidth(c.width) || !isScale(c.scale)) throw new Error("This drawing is damaged.");
-      return { id: captionCount + (out.arrows?.length ?? 0) + k + 1, centre: [c.x as number, c.y as number], radius: c.radius as number, clockwise: c.anticlockwise !== true, nodes: nodes as number[][], ...(at ? { at } : {}), ...(c.colour ? { colour: c.colour as string } : {}), ...orderOf(c.order), ...(c.width ? { width: c.width as number } : {}), ...(typeof c.gap === "number" && c.gap >= 0 && c.gap <= 100 ? { gap: c.gap } : {}), ...scaled(c as { scale?: number }) };
+      const sides = c.sides as { atoms?: unknown; side?: unknown }[] | undefined;
+      if (sides !== undefined && (!Array.isArray(sides) || sides.length > 32 || !sides.every((s) => (s?.side === "in" || s?.side === "out") && Array.isArray(s.atoms) && s.atoms.length > 0 && s.atoms.every((i) => int(i, 0, out.atoms.length - 1))))) throw new Error("This drawing is damaged.");
+      return { id: captionCount + (out.arrows?.length ?? 0) + k + 1, centre: [c.x as number, c.y as number], radius: c.radius as number, clockwise: c.anticlockwise !== true, nodes: nodes as number[][], ...(at ? { at } : {}), ...(c.colour ? { colour: c.colour as string } : {}), ...orderOf(c.order), ...(c.width ? { width: c.width as number } : {}), ...(typeof c.gap === "number" && c.gap >= 0 && c.gap <= 100 ? { gap: c.gap } : {}), ...(sides?.length ? { sides: sides as CycleSide[] } : {}), ...scaled(c as { scale?: number }) };
     });
   }
   // Shapes take ids after the cycles'.
