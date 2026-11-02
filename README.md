@@ -70,6 +70,9 @@ ever-so-slightly easier.
 
 Always up for a chat about my research, this project, or anything else.
 
+Thanks to my wonderful pals for beta testing: Elliot Thaw, Dylan Davies-Jones, James Baron, Elena Lahr, Seb Kinzie
+and Ying Hou.
+
 Email sam[at]octet.software, or for chemistry, spe29[at]cam.ac.uk. You can also find me on
 [LinkedIn](https://www.linkedin.com/in/sam-ellis-132781206/).
 

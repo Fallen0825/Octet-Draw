@@ -17,6 +17,10 @@ export function About({ onClose }: { onClose: () => void }) {
           <button className="about-link" onClick={() => void invoke("open_link", { name: "author" }).catch(() => undefined)}>Sam Ellis</button>.
         </p>
         <p className="about-credits">
+          Thanks to my wonderful pals for beta testing: Elliot Thaw, Dylan Davies‑Jones, James Baron, Elena Lahr, Seb
+          Kinzie and Ying Hou.
+        </p>
+        <p className="about-credits">
           Chemistry by Indigo (Apache-2.0). Names read by OPSIN (MIT). NMR shifts contain information from nmrshiftdb2
           (www.nmrshiftdb.org), which is made available here under the nmrshiftdb2 Database License.
         </p>
