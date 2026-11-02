@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question or suggest an idea
+    url: https://github.com/SamChemMan/Octet-Draw/discussions
+    about: Questions, ideas and drawings go in Discussions.
+  - name: Report a security problem
+    url: https://github.com/SamChemMan/Octet-Draw/blob/main/SECURITY.md
+    about: Don't open a public issue. Follow SECURITY.md.

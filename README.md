@@ -1,15 +1,10 @@
 # Octet Draw
 
-Developed by [Sam Ellis](https://www.linkedin.com/in/sam-ellis-132781206/) and our mate Claude.
+Free, open-source chemical drawing for Mac, Windows and Linux. It opens and saves ChemDraw files, and it works
+with no internet connection.
 
-[Instagram](https://www.instagram.com/samellis2004/)
-[LinkedIn](https://www.linkedin.com/in/sam-ellis-132781206/) 
-
-Please hmu on LinkedIn if you have questions or urgent requests.
-
-A chemical structure drawing app for the 21st century.
-Octet Draw is a free, offline desktop app for Mac, Windows, and Linux.
-Part of the Open-source Chemistry Toolkit for Experiment & Theory
+Octet Draw is part of Octet, the Open source Chemistry Toolkit for Experiments & Typesetting. Made by
+[Sam Ellis](https://www.linkedin.com/in/sam-ellis-132781206/), with Claude.
 
 ## Download
 
@@ -43,9 +38,14 @@ Octet needs no account and no internet connection.
 - Turns names into structures and structures into names, offline.
 - Predicts ¹H and ¹³C NMR shifts, and shows formula, mass and other properties.
 
+## Community
+
+Ask a question, suggest an idea or show what you drew in
+[Discussions](https://github.com/SamChemMan/Octet-Draw/discussions).
+
 ## Report a problem
 
-Use Help > Report a Problem in Octet, or open an [issue](https://github.com/SamChemMan/Octet-Draw/issues/new).
+Use Help > Report a Problem in Octet, or open an [issue](https://github.com/SamChemMan/Octet-Draw/issues/new/choose).
 For a security problem, follow [SECURITY.md](SECURITY.md) instead.
 
 ## Run from source
@@ -62,17 +62,16 @@ built and signed.
 
 ## Sam
 
-Hello everyone, 
-I'm currently a student in the [Nitschke](https://www.nitschkegroup-cambridge.com/) group at The University Of Cambridge. 
-Previously, I was an undergraduate at The University Of Manchester.
+Hello everyone. I'm a student in the [Nitschke](https://www.nitschkegroup-cambridge.com/) group at the University of Cambridge.
+Before that, I was an undergraduate at the University of Manchester.
 
 Chemistry is fantastic, but communicating it is extremely difficult. This is my first attempt to make it
 ever-so-slightly easier.
 
 Always up for a chat about my research, this project, or anything else.
 
-Reach me Sam[at]Octet.world
-or, for chemistry, Spe29[at]cam.ac.uk
+Email sam[at]octet.software, or for chemistry, spe29[at]cam.ac.uk. You can also find me on
+[LinkedIn](https://www.linkedin.com/in/sam-ellis-132781206/).
 
 ## Privacy
 
@@ -93,21 +92,23 @@ Settings > Import and export > Online search. See
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by
-[SignPath Foundation](https://signpath.org/). This covers the Windows installers, which GitHub Actions builds
-from this repository. Each release is signed only after a person approves it.
+GitHub Actions builds every installer from this repository. Nothing is built or signed on a personal computer.
+
+- **Mac:** signed with an Apple Developer ID and notarised by Apple.
+- **Windows:** signing is being set up. Until then, Windows may warn you the first time you open the
+  installer: click More info, then Run anyway.
 
 - Committers and reviewers: [Sam Ellis (SamChemMan)](https://github.com/SamChemMan)
 - Approvers: [Sam Ellis (SamChemMan)](https://github.com/SamChemMan)
 
-Privacy: see above. The policy is also at [octet.software/code-signing.html](https://octet.software/code-signing.html).
+The policy is also at [octet.software/code-signing](https://octet.software/code-signing).
 
 ## Licence
 
 Octet is free and open-source software under the
 [Apache License 2.0](LICENSE).
 
-Copyright © 2026 Sam Ellis. Built with love in Manchester and Cambridge
+Copyright © 2026 Sam Ellis. Made in Manchester and Cambridge.
 
 See the [licence plan](docs/licence.md) for the rules on third-party
 libraries and on studying other software.

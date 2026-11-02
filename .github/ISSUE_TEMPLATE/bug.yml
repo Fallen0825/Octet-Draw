@@ -1,0 +1,27 @@
+name: Something is wrong
+description: Octet does something it shouldn't, or doesn't do something it should.
+labels: [bug]
+body:
+  - type: textarea
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what Octet did. A screenshot helps.
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Octet version
+      description: Octet Draw > About Octet Draw on a Mac, or Help > About Octet Draw on Windows and Linux.
+      placeholder: "1.0.25"
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Computer
+      options: [Mac, Windows, Linux]
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: File
+      description: If it happens with one file, attach it (a .zip works). Only attach files you're allowed to share.
