@@ -50,12 +50,14 @@ export function translate(text: string, compact = false): string | undefined {
 }
 
 // Not changed at all: the drawing and what people type into. A text field's own words (its placeholder and title)
-// are changed, but never what is typed in it.
+// are changed, but never what is typed in it. Nor the names of drawings and folders on Home, which are file names
+// ("Paper.oct" stays "Paper"); Home's New tiles (Quick start, Paper…) are Octet's own and are changed.
 const SKIP = "svg.canvas, script, style, [contenteditable=''], [contenteditable='true'], [translate='no']";
-const TYPED = "input, textarea";
+const TYPED = "input, textarea, .home-tile:not(.new, .new-project) .home-name";
 const ATTRS = ["title", "placeholder"];
-// Narrow places: the names in menus (right-click menus and the tool menus) and the chips in the Actions panel.
-const COMPACT = ".variant-name, .picks, .chip";
+// Narrow places: the names in menus (right-click menus and the tool menus), the chips in the Actions panel, and Home's
+// New tiles and their heading.
+const COMPACT = ".variant-name, .picks, .chip, .home-tile.new .home-name, .home-tile.new-project .home-name, .home-heading[data-heading='new']";
 // Names kept to one line, with the whole name in a tooltip when it is cut (ko.css).
 const ONE_LINE = ".action-name";
 
