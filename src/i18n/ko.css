@@ -1,0 +1,4 @@
+/* 비공식 한글판: Instrument Sans에는 한글이 없어, 한글은 맑은 고딕(Windows)이나 Apple SD Gothic Neo(Mac)로 씁니다. */
+:root {
+  --font-sans: "Instrument Sans", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+}

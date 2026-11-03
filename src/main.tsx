@@ -7,10 +7,13 @@ import "@fontsource/instrument-sans/600.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "../brand/tokens.css"; // before App, which reads drawing tokens at load
+import "./i18n/ko.css"; // 비공식 한글판: 한글 글꼴
 import App from "./App";
 import { watchErrors } from "./crashlog";
+import { startKorean } from "./i18n/dom"; // 비공식 한글판
 
 watchErrors();
+startKorean();
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
