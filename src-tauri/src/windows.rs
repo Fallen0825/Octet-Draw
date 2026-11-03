@@ -96,8 +96,20 @@ pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: ser
     })?;
     #[cfg(windows)]
     crate::access_keys::install(&window);
+    fresh_menu(&app);
     let _ = window.set_focus();
     Ok(())
+}
+
+// 비공식 한글판 버그 수정: on Windows, closing a window destroys the menu bar it had, and every window shares the
+// app's one menu bar, so the next new window had no menu bar until something built it again (a new purpose, say).
+// The menu bar is built again for each new window. Not before the first one is made (Checks comes with it, main.rs).
+#[cfg_attr(target_os = "macos", allow(unused_variables))]
+fn fresh_menu(app: &AppHandle) {
+    #[cfg(not(target_os = "macos"))]
+    if app.try_state::<crate::Checks>().is_some() {
+        let _ = crate::rebuild(app);
+    }
 }
 
 // What this window opens: once, then nothing.
@@ -159,6 +171,7 @@ pub fn home(app: &AppHandle) -> tauri::Result<()> {
                 .build()?;
             #[cfg(windows)]
             crate::access_keys::install(&w);
+            fresh_menu(app);
             w
         }
     };
