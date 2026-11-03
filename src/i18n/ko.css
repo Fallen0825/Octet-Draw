@@ -2,3 +2,18 @@
 :root {
   --font-sans: "Instrument Sans", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
 }
+
+/* 작업 패널 항목: 한 줄로 표시하고, 길면 …로 자릅니다. 잘린 항목은 마우스를 올리면 툴팁으로 전체가 보입니다 (dom.ts). */
+.action-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.actions .action {
+  min-width: 0;
+  max-width: 100%;
+}
+.actions .action > kbd {
+  flex-shrink: 0;
+}

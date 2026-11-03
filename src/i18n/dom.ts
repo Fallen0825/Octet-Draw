@@ -56,6 +56,8 @@ const TYPED = "input, textarea";
 const ATTRS = ["title", "placeholder"];
 // Narrow places: the names in menus (right-click menus and the tool menus) and the chips in the Actions panel.
 const COMPACT = ".variant-name, .picks, .chip";
+// Names kept to one line, with the whole name in a tooltip when it is cut (ko.css).
+const ONE_LINE = ".action-name";
 
 const skipped = (el: Element | null) => !el || !!el.closest(SKIP);
 
@@ -64,6 +66,18 @@ function textNode(n: Text) {
   if (skipped(parent) || parent!.closest(TYPED)) return;
   const k = translate(n.nodeValue ?? "", !!parent!.closest(COMPACT));
   if (k !== undefined && k !== n.nodeValue) n.nodeValue = k;
+  fullTip(parent!);
+}
+
+// An Actions panel row shows its name on one line (ko.css), cut short with … when it is long. The app's tooltip then
+// shows the whole name, only while it is cut (data-tip-cut, Tooltip.tsx).
+function fullTip(parent: Element) {
+  if (!parent.matches(ONE_LINE)) return;
+  const row = parent.closest("button");
+  const text = parent.textContent?.trim();
+  if (!row || !text || row.getAttribute("data-tip") === text) return;
+  row.setAttribute("data-tip", text);
+  row.setAttribute("data-tip-cut", "");
 }
 
 function attribute(el: Element, name: string) {
