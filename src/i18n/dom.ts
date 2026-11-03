@@ -39,6 +39,7 @@ export function translate(text: string, compact = false): string | undefined {
     let out: string;
     if (k.startsWith("!")) out = k.slice(1);
     else if (compact || /[.?!:]$/.test(base)) out = k; // a sentence or a narrow place: Korean only
+    else if (base.includes("(")) out = `${k} — ${base}`; // "의자형 (뒤집음) — Chair (flipped)", not nested brackets
     else out = `${k} (${base})`;
     return lead + out + ellipsis + trail;
   }
