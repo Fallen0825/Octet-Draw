@@ -1,0 +1,61 @@
+# Octet Draw 비공식 한글판: Windows 설치 파일 만들기.
+# main에 올라온 변경마다(또는 Actions > Korean build > Run workflow로) Windows 설치 파일을 만들고,
+# 이 저장소의 Releases에 "ko-v<버전>-<빌드 번호>" 이름으로 올립니다. 서명은 하지 않습니다.
+name: Korean build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: korean-build
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    if: github.repository != 'SamChemMan/Octet-Draw'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: korean-windows-cargo-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: korean-windows-cargo-
+      - run: npm ci
+      - name: Rust tests (menu labels)
+        working-directory: src-tauri
+        run: cargo test i18n --locked
+      - name: Build the installer
+        run: npx tauri build --bundles nsis
+      - name: Upload to Releases
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          tag="ko-v${version}-${GITHUB_RUN_NUMBER}"
+          exe=$(ls src-tauri/target/release/bundle/nsis/*.exe | head -n 1)
+          cp "$exe" "$RUNNER_TEMP/Octet-Draw-KO-${version}-setup.exe"
+          notes="Octet Draw ${version} 비공식 한글판 (빌드 ${GITHUB_RUN_NUMBER}, 커밋 ${GITHUB_SHA::7}).
+          아래 Assets에서 Octet-Draw-KO-${version}-setup.exe 를 받아 실행하세요.
+          서명되지 않은 설치 파일이라 Windows가 경고하면 '추가 정보' → '실행'을 누르세요.
+          원본(영어판)과 따로 설치되며, 원본 프로그램은 그대로 남습니다."
+          gh release create "$tag" "$RUNNER_TEMP/Octet-Draw-KO-${version}-setup.exe" \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "Octet Draw ${version} 한글판 (빌드 ${GITHUB_RUN_NUMBER})" --notes "$notes" --latest

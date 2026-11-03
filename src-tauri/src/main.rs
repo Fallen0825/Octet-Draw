@@ -16,6 +16,7 @@ use tauri_plugin_dialog::DialogExt;
 #[cfg(windows)]
 mod access_keys;
 mod clipboard;
+mod i18n;
 mod crashlog;
 mod export;
 // Feedback, for testers: not in the public release (build.rs, REL-8).
@@ -439,13 +440,13 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let item = |id: &str, text: &str, keys: &str| {
         list.borrow_mut().push((id.to_string(), text.to_string(), section.borrow().clone(), keys.to_string()));
         let k = overrides.get(id).cloned().unwrap_or_else(|| keys.to_string());
-        MenuItem::with_id(app, id, text, true, if k.is_empty() { None } else { Some(k) })
+        MenuItem::with_id(app, id, i18n::tr(text), true, if k.is_empty() { None } else { Some(k) })
     };
     // A tickable command, listed and given the user's shortcut as `item` does. The page sets its tick.
     let check = |id: &str, text: &str, keys: &str| {
         list.borrow_mut().push((id.to_string(), text.to_string(), section.borrow().clone(), keys.to_string()));
         let k = overrides.get(id).cloned().unwrap_or_else(|| keys.to_string());
-        CheckMenuItem::with_id(app, id, text, true, false, if k.is_empty() { None } else { Some(k) })
+        CheckMenuItem::with_id(app, id, i18n::tr(text), true, false, if k.is_empty() { None } else { Some(k) })
     };
     let sep = || PredefinedMenuItem::separator(app);
     // Open Recent, as ChemDraw's and every Mac app's: the recent drawings (Home's list), newest first, then Clear Menu.
@@ -455,13 +456,13 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         .enumerate()
         .map(|(k, title)| MenuItem::with_id(app, format!("recent_{k}"), title, true, None::<&str>))
         .collect::<tauri::Result<Vec<_>>>()?;
-    let (recent_sep, clear) = (sep()?, MenuItem::with_id(app, "recent_clear", "Clear Menu", !recents.is_empty(), None::<&str>)?);
+    let (recent_sep, clear) = (sep()?, MenuItem::with_id(app, "recent_clear", i18n::tr("Clear Menu"), !recents.is_empty(), None::<&str>)?);
     let mut recent_items: Vec<&dyn IsMenuItem<Wry>> = recents.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     if !recents.is_empty() {
         recent_items.push(&recent_sep);
     }
     recent_items.push(&clear);
-    let open_recent = Submenu::with_items(app, "Open Recent", true, &recent_items)?;
+    let open_recent = Submenu::with_items(app, i18n::tr("Open Recent"), true, &recent_items)?;
     // File > New For: Quick start (as on Home), then Paper, Thesis, Slides and Poster, then the user's own purposes.
     let (own, current) = app.state::<Purposes>().0.lock().unwrap().clone();
     section.replace("File › New For".into());
@@ -478,7 +479,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         new_for_items.push(&own_sep);
         new_for_items.extend(own_items.iter().map(|m| m as &dyn IsMenuItem<Wry>));
     }
-    let new_for = Submenu::with_items(app, "New For", true, &new_for_items)?;
+    let new_for = Submenu::with_items(app, i18n::tr("New For"), true, &new_for_items)?;
     // File > Save Templates for ChemDraw: each template set (as View > Templates lists them, "ctp_<k>") saved as a
     // ChemDraw template file. The items change with the sets, so they are not commands with shortcuts.
     let (own_sets, octet_sets) = app.state::<TemplateSets>().0.lock().unwrap().clone();
@@ -491,10 +492,15 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         ctp_list.push(&ctp_sep);
     }
     ctp_list.extend(ctp_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
-    let save_ctp = Submenu::with_items(app, "Save Templates for ChemDraw", !ctp_items.is_empty(), &ctp_list)?;
+    let save_ctp = Submenu::with_items(app, i18n::tr("Save Templates for ChemDraw"), !ctp_items.is_empty(), &ctp_list)?;
     section.replace("File".into());
+    // The user's own purposes have no entry in ko.json: "새 <name> (New <name>)".
     let new_name = if current.is_empty() { "New".to_string() } else { format!("New {current}") };
-    let file = Submenu::with_items(app, "&File", true, &[
+    let new_name = match i18n::tr(&new_name) {
+        same if same == new_name && !current.is_empty() => format!("새 {current} (New {current})"),
+        other => other,
+    };
+    let file = Submenu::with_items(app, i18n::tr("&File"), true, &[
         &item("home", "Home", "")?,
         &item("new", &new_name, "CmdOrCtrl+N")?,
         &new_for,
@@ -534,7 +540,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // Copy As, as ChemDraw's: each puts the selected structures (or all of them) on the clipboard as text. ChemDraw's
     // keys: ⌥⌘C SMILES, ⌘D CDXML Text, ⌥⌘O MOL Text (V3000 since ChemDraw 26.1), ⇧⌥⌘O MOL V2000 Text.
     section.replace("Edit › Copy As".into());
-    let copy_as = Submenu::with_items(app, "Copy As", true, &[
+    let copy_as = Submenu::with_items(app, i18n::tr("Copy As"), true, &[
         &item("copy_smiles", "SMILES", "Alt+CmdOrCtrl+C")?,
         &item("copy_inchi", "InChI", "")?,
         &item("copy_inchikey", "InChIKey", "")?,
@@ -550,7 +556,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let (cut, copy, paste) = (PredefinedMenuItem::cut(app, None)?, PredefinedMenuItem::copy(app, None)?, PredefinedMenuItem::paste(app, None)?);
     #[cfg(target_os = "linux")]
     let (cut, copy, paste) = (item("cut", "Cut", "CmdOrCtrl+X")?, item("copy", "Copy", "CmdOrCtrl+C")?, item("paste", "Paste", "CmdOrCtrl+V")?);
-    let edit = Submenu::with_items(app, "&Edit", true, &[
+    let edit = Submenu::with_items(app, i18n::tr("&Edit"), true, &[
         &item("undo", "Undo", "CmdOrCtrl+Z")?,
         &item("redo", "Redo", "CmdOrCtrl+Y")?,
         // ChemDraw's Repeat: the last turn, flip, scale or style again. Redo's ⌘Y repeats when there is nothing to redo.
@@ -594,8 +600,8 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         sets_list.push(&sets_sep);
     }
     sets_list.extend(set_items.iter().skip(own_sets.len()).map(|m| m as &dyn IsMenuItem<Wry>));
-    let templates = Submenu::with_items(app, "Templates", !set_items.is_empty(), &sets_list)?;
-    let view = Submenu::with_items(app, "&View", true, &[
+    let templates = Submenu::with_items(app, i18n::tr("Templates"), !set_items.is_empty(), &sets_list)?;
+    let view = Submenu::with_items(app, i18n::tr("&View"), true, &[
         // ChemDraw's keys: Actual Size and Fit to Window.
         &item("zoom_actual", "Actual Size", "CmdOrCtrl+\\")?,
         &item("zoom_fit", "Fit to Window", "CmdOrCtrl+/")?,
@@ -621,7 +627,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     ])?;
     // Structure > Enhanced Stereochemistry, as ChemDraw's.
     section.replace("Structure › Enhanced Stereochemistry".into());
-    let enhanced = Submenu::with_items(app, "Enhanced Stereochemistry", true, &[
+    let enhanced = Submenu::with_items(app, i18n::tr("Enhanced Stereochemistry"), true, &[
         &item("stereo_clear", "Clear All", "")?,
         &item("stereo_abs", "Mark as Absolute", "")?,
         &item("stereo_or", "Create Or Group", "")?,
@@ -629,7 +635,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     ])?;
     // Structure commands keep ChemDraw's shortcuts.
     section.replace("Structure".into());
-    let structure = Submenu::with_items(app, "&Structure", true, &[
+    let structure = Submenu::with_items(app, i18n::tr("&Structure"), true, &[
         &item("check_structure", "Check Structure", "")?,
         &item("clean_up", "Clean Up Structure", "CmdOrCtrl+Shift+K")?,
         &item("clean_reaction", "Clean Up Reaction", "CmdOrCtrl+Shift+X")?,
@@ -666,7 +672,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     ])?;
     // Align and Distribute, as ChemDraw's (lined up on the highest thing; spaced out between the two at the ends).
     section.replace("Object › Align".into());
-    let align = Submenu::with_items(app, "Align", true, &[
+    let align = Submenu::with_items(app, i18n::tr("Align"), true, &[
         &item("arrange_left", "Left Edges", "Alt+Shift+CmdOrCtrl+L")?,
         &item("arrange_centre", "Left-Right Centres", "Alt+Shift+CmdOrCtrl+C")?,
         &item("arrange_right", "Right Edges", "Alt+Shift+CmdOrCtrl+R")?,
@@ -675,13 +681,13 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
         &item("arrange_bottom", "Bottom Edges", "Alt+Shift+CmdOrCtrl+B")?,
     ])?;
     section.replace("Object › Distribute".into());
-    let distribute = Submenu::with_items(app, "Distribute", true, &[
+    let distribute = Submenu::with_items(app, i18n::tr("Distribute"), true, &[
         &item("arrange_across", "Horizontally", "Alt+Shift+CmdOrCtrl+H")?,
         &item("arrange_down", "Vertically", "Alt+Shift+CmdOrCtrl+V")?,
     ])?;
     // Add Frame, as ChemDraw's: a frame round everything selected.
     section.replace("Object › Add Frame".into());
-    let frame = Submenu::with_items(app, "Add Frame", true, &[
+    let frame = Submenu::with_items(app, i18n::tr("Add Frame"), true, &[
         &item("frame_brackets", "Brackets", "")?,
         &item("frame_parens", "Parentheses", "")?,
         &item("frame_braces", "Braces", "")?,
@@ -695,7 +701,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // 15° step.
     let fixed_lengths = check("fixed_lengths", "Fixed Lengths", "CmdOrCtrl+L")?;
     let fixed_angles = check("fixed_angles", "Fixed Angles", "CmdOrCtrl+E")?;
-    let object = Submenu::with_items(app, "&Object", true, &[
+    let object = Submenu::with_items(app, i18n::tr("&Object"), true, &[
         &align,
         &distribute,
         &item("centre_page", "Centre on Page", "")?,
@@ -737,7 +743,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let (size_other, size_last, size_sep) = (item("size_other", "Other Size…", "")?, item("size_last", "Last Typed Size", "")?, sep()?);
     let mut size_items: Vec<&dyn IsMenuItem<Wry>> = sizes.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     size_items.extend([&size_sep as &dyn IsMenuItem<Wry>, &size_other, &size_last]);
-    let size = Submenu::with_items(app, "Size", true, &size_items)?;
+    let size = Submenu::with_items(app, i18n::tr("Size"), true, &size_items)?;
     // ChemDraw's text keys: Plain ⌘T, Bold ⌘B, Italic ⌘I, Underline ⌘U, Subscript ⌘-, Superscript ⌘+, Formula ⌘F.
     // Fonts: Octet's and the drawing's, then Other Font…, which finds any font on the computer.
     section.replace("Text › Font".into());
@@ -747,9 +753,9 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let (font_other, font_sep) = (item("font_other", "Other Font…", "")?, sep()?);
     let mut font_items: Vec<&dyn IsMenuItem<Wry>> = fonts.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     font_items.extend([&font_sep as &dyn IsMenuItem<Wry>, &font_other]);
-    let font = Submenu::with_items(app, "Font", true, &font_items)?;
+    let font = Submenu::with_items(app, i18n::tr("Font"), true, &font_items)?;
     section.replace("Text".into());
-    let text = Submenu::with_items(app, "&Text", true, &[
+    let text = Submenu::with_items(app, i18n::tr("&Text"), true, &[
         &font,
         &sep()?,
         &item("text_plain", "Plain", "CmdOrCtrl+T")?,
@@ -773,7 +779,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     ])?;
     // Curves, as ChemDraw's Curves menu: the line, a head at either end (again takes it off), and a closed curve's fill.
     section.replace("Curves".into());
-    let curves = Submenu::with_items(app, "&Curves", true, &[
+    let curves = Submenu::with_items(app, i18n::tr("&Curves"), true, &[
         &item("curves_plain", "Plain", "")?,
         &item("curves_dashed", "Dashed", "")?,
         &item("curves_bold", "Bold", "")?,
@@ -808,10 +814,10 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     let fills = ["None", "Blue", "Sky", "Cyan", "Teal", "Green", "Lime", "Yellow", "Gold", "Orange", "Coral", "Red", "Crimson", "Pink", "Magenta", "Purple", "Violet", "Indigo", "Brown", "Grey", "Slate", "Mint", "Peach", "Lavender", "Sand", "Olive"];
     section.replace("Colour › Highlight".into());
     let highlights = fills[..21].iter().enumerate().map(|(k, name)| item(&format!("highlight_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
-    let highlight = Submenu::with_items(app, "Highlight", true, &highlights.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
+    let highlight = Submenu::with_items(app, i18n::tr("Highlight"), true, &highlights.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
     section.replace("Colour › Ring Fill".into());
     let ringfills = fills.iter().enumerate().map(|(k, name)| item(&format!("ringfill_{k}"), name, "")).collect::<tauri::Result<Vec<_>>>()?;
-    let ringfill = Submenu::with_items(app, "Ring Fill", true, &ringfills.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
+    let ringfill = Submenu::with_items(app, i18n::tr("Ring Fill"), true, &ringfills.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect::<Vec<_>>())?;
     section.replace("Colour".into());
     let mut colour_items: Vec<&dyn IsMenuItem<Wry>> = builtin.iter().map(|m| m as &dyn IsMenuItem<Wry>).collect();
     if !mine.is_empty() {
@@ -824,11 +830,11 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     colour_items.push(&ringfill);
     colour_items.push(&sep3);
     colour_items.push(&edit_colours);
-    let colour = Submenu::with_items(app, "Co&lour", true, &colour_items)?;
+    let colour = Submenu::with_items(app, i18n::tr("Co&lour"), true, &colour_items)?;
     // Search, after Colour, as ChemDraw's Search menu (Search Reaxys…). Each search is one press, with no dialog.
     // Not ⌥⌘R or ⌥⌘P, which are ChemDraw's (Re-run Script, Paste SMILES).
     section.replace("Search".into());
-    let search = Submenu::with_items(app, "Se&arch", true, &[
+    let search = Submenu::with_items(app, i18n::tr("Se&arch"), true, &[
         &item("search_reaxys", "Search Reaxys", "Alt+CmdOrCtrl+F")?,
         &item("search_reaxys_exact", "Search Reaxys for Exact Structure", "Alt+Shift+CmdOrCtrl+F")?,
         &sep()?,
@@ -838,13 +844,13 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     // Window: what the system supports. GTK on Linux has neither item, so Linux has no Window menu; Windows has no
     // full screen item.
     section.replace("Window".into());
-    let window = Submenu::with_id_and_items(app, "window", "&Window", true, &[&PredefinedMenuItem::minimize(app, None)?])?;
+    let window = Submenu::with_id_and_items(app, "window", i18n::tr("&Window"), true, &[&PredefinedMenuItem::minimize(app, None)?])?;
     #[cfg(target_os = "macos")]
     window.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
     // Help on every platform, as ChemDraw's (REL-18). On the Mac, set_bar makes it the system's Help menu, with its
     // search field.
     section.replace("Help".into());
-    let help = Submenu::with_id_and_items(app, "help", "&Help", true, &[
+    let help = Submenu::with_id_and_items(app, "help", i18n::tr("&Help"), true, &[
         &item("tutorial", "Tutorial", "")?,
         &item("shortcuts", "Keyboard Shortcuts", "")?,
         &sep()?,
@@ -859,7 +865,7 @@ fn menu(app: &AppHandle, palette: &[String], text: &(Vec<String>, Vec<f64>), ove
     }
     section.replace("Octet Draw".into());
     #[cfg(target_os = "macos")]
-    let octet = Submenu::with_items(app, "Octet Draw", true, &[
+    let octet = Submenu::with_items(app, i18n::tr("Octet Draw"), true, &[
         // Octet's own About window (src/About.tsx): the mark, who made it, and the credits the licences ask for.
         &item("about", "About Octet Draw", "")?,
         // As ChemDraw 26.1's ChemDraw > Check for Updates… (decision 0010).

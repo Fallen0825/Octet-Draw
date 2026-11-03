@@ -80,7 +80,7 @@ pub async fn open_window(app: AppHandle, windows: State<'_, Windows>, start: ser
     let label = format!("draw-{}", NEXT.fetch_add(1, Ordering::Relaxed));
     windows.starts.lock().unwrap().insert(label.clone(), start);
     let mut builder = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html?window".into()))
-        .title("Octet Draw")
+        .title("Octet Draw (비공식 한글판)")
         .inner_size(1200.0, 800.0)
         .min_inner_size(800.0, 620.0);
     let from = front(&app).and_then(|l| app.get_webview_window(&l));
@@ -152,7 +152,7 @@ pub fn home(app: &AppHandle) -> tauri::Result<()> {
         Some(w) => w,
         None => {
             let w = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Octet Draw")
+                .title("Octet Draw (비공식 한글판)")
                 .inner_size(1200.0, 800.0)
                 .min_inner_size(800.0, 620.0)
                 .center()

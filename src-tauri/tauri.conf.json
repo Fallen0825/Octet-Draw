@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Octet Draw",
+  "productName": "Octet Draw KO",
   "version": "../package.json",
-  "identifier": "io.github.samchemman.octet-draw",
+  "identifier": "io.github.fallen0825.octet-draw-ko",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Octet Draw",
+        "title": "Octet Draw (비공식 한글판)",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -33,7 +33,7 @@
     "category": "Education",
     "shortDescription": "Draw chemical structures and reactions",
     "longDescription": "Octet Draw is a free, open-source app to draw chemical structures and reactions. It opens and saves ChemDraw files (CDXML and CDX), and it works with no internet connection.",
-    "homepage": "https://github.com/SamChemMan/Octet-Draw",
+    "homepage": "https://github.com/Fallen0825/Octet-Draw",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

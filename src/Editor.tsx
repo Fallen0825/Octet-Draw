@@ -1113,7 +1113,7 @@ export default function Editor() {
   }, [doc]);
 
   const name = file.path?.split(/[\\/]/).pop()?.replace(/\.(octet|oct|cdxml)$/i, "") ?? file.name ?? "Untitled";
-  useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet Draw" : dirty ? `${name} (edited)` : name); }, [name, dirty, home]);
+  useEffect(() => { if (TAURI) getCurrentWindow().setTitle(home ? "Octet Draw (비공식 한글판)" : dirty ? `${name} (수정됨)` : name); }, [name, dirty, home]);
 
   // A picture of part of the drawing (or all of it) as a standalone SVG at true size: the canvas shows only that part
   // for a moment (nothing is painted in between), and the picture is cut to the ink of what it draws.
@@ -1306,7 +1306,7 @@ export default function Editor() {
     if (!TAURI) return;
     void invoke<string | null>("update_check").then(
       (version) => (version ? setDialog((d) => d ?? { kind: "update", version }) : asked && setNotice("Octet is up to date.", "done")),
-      () => asked && setNotice("Octet cannot check for updates. Connect to the internet and try again."),
+      () => asked && setNotice("비공식 한글판은 자동 업데이트를 지원하지 않습니다. 새 버전은 github.com/Fallen0825/Octet-Draw 에서 받으세요."),
     );
   };
   useEffect(() => {

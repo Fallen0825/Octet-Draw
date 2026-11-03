@@ -2,10 +2,9 @@
 // automatic checks (on first launch, or later in Settings), or chose Check for Updates. Every update is signed, and
 // the updater installs it only when the signature matches the public key in tauri.conf.json.
 use std::sync::Mutex;
-use std::time::Duration;
 
 use tauri::{AppHandle, State};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::Update;
 
 // The update the last check found, kept for Install.
 #[derive(Default)]
@@ -14,12 +13,10 @@ pub struct Found(Mutex<Option<Update>>);
 // The newer version, or None when Octet is up to date. With no network the check fails, and the page says so only
 // when the user asked. A check that gets no answer stops after 30 s.
 #[tauri::command]
-pub async fn update_check(app: AppHandle, found: State<'_, Found>) -> Result<Option<String>, String> {
-    let updater = app.updater_builder().timeout(Duration::from_secs(30)).build().map_err(|e| e.to_string())?;
-    let update = updater.check().await.map_err(|e| e.to_string())?;
-    let version = update.as_ref().map(|u| u.version.clone());
-    *found.0.lock().unwrap() = update;
-    Ok(version)
+// Korean build: no update check. The original's updates are the English build, which would replace this one; a new
+// Korean build comes from the fork's GitHub page instead. The page shows its own message for the error.
+pub async fn update_check(_app: AppHandle, _found: State<'_, Found>) -> Result<Option<String>, String> {
+    Err("The Korean build does not update itself.".into())
 }
 
 // Downloads the update found, checks its signature, installs it and starts Octet again. The page asks to save the
